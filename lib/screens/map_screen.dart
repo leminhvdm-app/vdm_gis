@@ -55,8 +55,122 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   double _labelFontSize = 10.0;
   double _labelMinZoom = 15.0; // Hiện nhãn từ mức Zoom 15 trở lên (tránh crash bộ nhớ khi zoom xa)
   Color _labelColor = const Color(0xFFFFEB3B); // Màu chữ vàng sáng
-  bool _labelHasHalo = true; // Chữ đậm viền đen/trắng dễ đọc
+  bool _labelHasHalo = true; // Chữ đậm viền tương phản dễ đọc
+  Color _labelHaloColor = const Color(0xFF000000); // Màu viền chữ (Mặc định: Đen)
   String _ldlrStandard = 'TT33'; // Hệ suy LDLR: TT33 hoặc TT16
+  List<String> _datasetGroupOrder = []; // Thứ tự các lớp dữ liệu (Lớp 1 nằm đầu tiên trên cùng, lớp 2 nằm dưới...)
+
+  static const List<Color> appRichPalette = [
+    // 1. Vàng & Chanh (Yellow & Lime)
+    Color(0xFFFFEB3B), Color(0xFFFDD835), Color(0xFFFBC02D), Color(0xFFF57F17),
+    Color(0xFFCDDC39), Color(0xFFAEEA00), Color(0xFF76FF03), Color(0xFF64DD17),
+    // 2. Cam & Hổ phách (Orange & Amber)
+    Color(0xFFFF9800), Color(0xFFFB8C00), Color(0xFFF57C00), Color(0xFFEF6C00),
+    Color(0xFFFF6F00), Color(0xFFFF8F00), Color(0xFFFFA000), Color(0xFFFFB300),
+    // 3. Đỏ & Hồng (Red & Pink)
+    Color(0xFFF44336), Color(0xFFE53935), Color(0xFFD32F2F), Color(0xFFC62828),
+    Color(0xFFB71C1C), Color(0xFFFF1744), Color(0xFFD50000), Color(0xFFFF5252),
+    Color(0xFFE91E63), Color(0xFFD81B60), Color(0xFFC2185B), Color(0xFFAD1457),
+    // 4. Tím & Tím than (Purple & Violet)
+    Color(0xFF9C27B0), Color(0xFF8E24AA), Color(0xFF7B1FA2), Color(0xFF6A1B9A),
+    Color(0xFF4A148C), Color(0xFF673AB7), Color(0xFF512DA8), Color(0xFF4527A0),
+    // 5. Xanh dương & Cyan (Blue, Cyan, Teal)
+    Color(0xFF00BCD4), Color(0xFF00ACC1), Color(0xFF0097A7), Color(0xFF00838F),
+    Color(0xFF006064), Color(0xFF00E5FF), Color(0xFF00B0FF), Color(0xFF0091EA),
+    Color(0xFF2196F3), Color(0xFF1976D2), Color(0xFF1565C0), Color(0xFF0D47A1),
+    Color(0xFF3F51B5), Color(0xFF303F9F), Color(0xFF283593), Color(0xFF1A237E),
+    // 6. Xanh lá & Xanh rừng (Green & Forest)
+    Color(0xFF4CAF50), Color(0xFF43A047), Color(0xFF388E3C), Color(0xFF2E7D32),
+    Color(0xFF1B5E20), Color(0xFF004D40), Color(0xFF00796B), Color(0xFF009688),
+    // 7. Đen, Xám, Trắng, Nâu (Neutrals)
+    Color(0xFFFFFFFF), Color(0xFFE0E0E0), Color(0xFF9E9E9E), Color(0xFF757575),
+    Color(0xFF424242), Color(0xFF212121), Color(0xFF000000), Color(0xFF795548),
+    Color(0xFF5D4037), Color(0xFF3E2723), Color(0xFF37474F), Color(0xFF263238),
+  ];
+
+  List<Shadow>? _buildLabelShadows(bool hasHalo, Color haloColor) {
+    if (!hasHalo) return null;
+    return [
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, -1)),
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, -1)),
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, 1)),
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, 1)),
+      Shadow(color: haloColor, blurRadius: 6),
+      Shadow(color: haloColor, blurRadius: 2),
+    ];
+  }
+
+  List<String> _getCurrentGroupOrder() {
+    final Set<String> existingGroups = {
+      ..._plots.map((p) => p.groupName),
+      ..._poiList.map((p) => p.groupName),
+    };
+
+    final List<String> ordered = _datasetGroupOrder.where((g) => existingGroups.contains(g)).toList();
+    for (var g in existingGroups) {
+      if (!ordered.contains(g)) {
+        ordered.add(g);
+      }
+    }
+    _datasetGroupOrder = ordered;
+    return ordered;
+  }
+
+  static const List<Color> appRichPalette = [
+    // 1. Vàng & Chanh (Yellow & Lime)
+    Color(0xFFFFEB3B), Color(0xFFFDD835), Color(0xFFFBC02D), Color(0xFFF57F17),
+    Color(0xFFCDDC39), Color(0xFFAEEA00), Color(0xFF76FF03), Color(0xFF64DD17),
+    // 2. Cam & Hổ phách (Orange & Amber)
+    Color(0xFFFF9800), Color(0xFFFB8C00), Color(0xFFF57C00), Color(0xFFEF6C00),
+    Color(0xFFFF6F00), Color(0xFFFF8F00), Color(0xFFFFA000), Color(0xFFFFB300),
+    // 3. Đỏ & Hồng (Red & Pink)
+    Color(0xFFF44336), Color(0xFFE53935), Color(0xFFD32F2F), Color(0xFFC62828),
+    Color(0xFFB71C1C), Color(0xFFFF1744), Color(0xFFD50000), Color(0xFFFF5252),
+    Color(0xFFE91E63), Color(0xFFD81B60), Color(0xFFC2185B), Color(0xFFAD1457),
+    // 4. Tím & Tím than (Purple & Violet)
+    Color(0xFF9C27B0), Color(0xFF8E24AA), Color(0xFF7B1FA2), Color(0xFF6A1B9A),
+    Color(0xFF4A148C), Color(0xFF673AB7), Color(0xFF512DA8), Color(0xFF4527A0),
+    // 5. Xanh dương & Cyan (Blue, Cyan, Teal)
+    Color(0xFF00BCD4), Color(0xFF00ACC1), Color(0xFF0097A7), Color(0xFF00838F),
+    Color(0xFF006064), Color(0xFF00E5FF), Color(0xFF00B0FF), Color(0xFF0091EA),
+    Color(0xFF2196F3), Color(0xFF1976D2), Color(0xFF1565C0), Color(0xFF0D47A1),
+    Color(0xFF3F51B5), Color(0xFF303F9F), Color(0xFF283593), Color(0xFF1A237E),
+    // 6. Xanh lá & Xanh rừng (Green & Forest)
+    Color(0xFF4CAF50), Color(0xFF43A047), Color(0xFF388E3C), Color(0xFF2E7D32),
+    Color(0xFF1B5E20), Color(0xFF004D40), Color(0xFF00796B), Color(0xFF009688),
+    // 7. Đen, Xám, Trắng, Nâu (Neutrals)
+    Color(0xFFFFFFFF), Color(0xFFE0E0E0), Color(0xFF9E9E9E), Color(0xFF757575),
+    Color(0xFF424242), Color(0xFF212121), Color(0xFF000000), Color(0xFF795548),
+    Color(0xFF5D4037), Color(0xFF3E2723), Color(0xFF37474F), Color(0xFF263238),
+  ];
+
+  List<Shadow>? _buildLabelShadows(bool hasHalo, Color haloColor) {
+    if (!hasHalo) return null;
+    return [
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, -1)),
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, -1)),
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, 1)),
+      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, 1)),
+      Shadow(color: haloColor, blurRadius: 6),
+      Shadow(color: haloColor, blurRadius: 2),
+    ];
+  }
+
+  List<String> _getCurrentGroupOrder() {
+    final Set<String> existingGroups = {
+      ..._plots.map((p) => p.groupName),
+      ..._poiList.map((p) => p.groupName),
+    };
+
+    final List<String> ordered = _datasetGroupOrder.where((g) => existingGroups.contains(g)).toList();
+    for (var g in existingGroups) {
+      if (!ordered.contains(g)) {
+        ordered.add(g);
+      }
+    }
+    _datasetGroupOrder = ordered;
+    return ordered;
+  }
 
   // Tối ưu hiệu năng GPS và Bản đồ tránh đứng/văng app
   DateTime? _lastGpsCheckTime;
@@ -71,8 +185,21 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   // Quản lý hiển thị và nhóm dữ liệu đã nhập (Bật/tắt từng nhóm riêng biệt, tránh nằm chồng lên nhau)
   final Set<String> _hiddenGroups = {};
 
-  List<ForestPlot> get _visiblePlots =>
-      _plots.where((p) => !_hiddenGroups.contains(p.groupName)).toList();
+  List<ForestPlot> get _visiblePlots {
+    final list = _plots.where((p) => !_hiddenGroups.contains(p.groupName)).toList();
+    final order = _getCurrentGroupOrder();
+    if (order.isEmpty) return list;
+
+    list.sort((a, b) {
+      final indexA = order.indexOf(a.groupName);
+      final indexB = order.indexOf(b.groupName);
+      final rankA = indexA == -1 ? 999 : indexA;
+      final rankB = indexB == -1 ? 999 : indexB;
+      // rankB.compareTo(rankA): Lớp thứ tự lớn vẽ trước, Lớp #1 (index 0) vẽ sau cùng để hiển thị trên cùng
+      return rankB.compareTo(rankA);
+    });
+    return list;
+  }
 
   /// Tối ưu hóa hiệu năng render (Spatial Viewport Culling):
   /// Khi dữ liệu lớn (> 60 lô), chỉ render các Lô nằm trong khung nhìn màn hình hiện tại + viền đệm,
@@ -177,6 +304,15 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         'plots': _plots.map((p) => p.toMap()).toList(),
         'pois': _poiList.map((p) => p.toMap()).toList(),
         'hiddenGroups': _hiddenGroups.toList(),
+        'groupOrder': _datasetGroupOrder,
+        'labelColor': _labelColor.toARGB32(),
+        'labelHasHalo': _labelHasHalo,
+        'labelHaloColor': _labelHaloColor.toARGB32(),
+        'labelFontSize': _labelFontSize,
+        'labelMinZoom': _labelMinZoom,
+        'labelNumeratorField': _labelNumeratorField,
+        'labelDenominatorField': _labelDenominatorField,
+        'plotOpacity': _plotOpacity,
       };
       await file.writeAsString(jsonEncode(data));
     } catch (e) {
@@ -195,6 +331,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       final rawPlots = data['plots'] as List<dynamic>? ?? [];
       final rawPois = data['pois'] as List<dynamic>? ?? [];
       final rawHidden = data['hiddenGroups'] as List<dynamic>? ?? [];
+      final rawOrder = data['groupOrder'] as List<dynamic>? ?? [];
 
       final loadedPlots = rawPlots.map((e) => ForestPlot.fromMap(e as Map<String, dynamic>)).toList();
       final loadedPois = rawPois.map((e) => ForestPoi.fromMap(e as Map<String, dynamic>)).toList();
@@ -207,6 +344,33 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           _poiList.addAll(loadedPois);
           _hiddenGroups.clear();
           _hiddenGroups.addAll(rawHidden.map((e) => e.toString()));
+          _datasetGroupOrder.clear();
+          _datasetGroupOrder.addAll(rawOrder.map((e) => e.toString()));
+
+          if (data['labelColor'] != null) {
+            _labelColor = Color(data['labelColor'] as int);
+          }
+          if (data['labelHasHalo'] != null) {
+            _labelHasHalo = data['labelHasHalo'] as bool;
+          }
+          if (data['labelHaloColor'] != null) {
+            _labelHaloColor = Color(data['labelHaloColor'] as int);
+          }
+          if (data['labelFontSize'] != null) {
+            _labelFontSize = (data['labelFontSize'] as num).toDouble();
+          }
+          if (data['labelMinZoom'] != null) {
+            _labelMinZoom = (data['labelMinZoom'] as num).toDouble();
+          }
+          if (data['labelNumeratorField'] != null) {
+            _labelNumeratorField = data['labelNumeratorField'] as String;
+          }
+          if (data['labelDenominatorField'] != null) {
+            _labelDenominatorField = data['labelDenominatorField'] as String;
+          }
+          if (data['plotOpacity'] != null) {
+            _plotOpacity = (data['plotOpacity'] as num).toDouble();
+          }
         });
 
         if (_plots.isNotEmpty) {
@@ -2205,7 +2369,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     }
 
     ForestPlot? clickedPlot;
-    for (var plot in _visiblePlots) {
+    for (var plot in _visiblePlots.reversed) {
       if (plot.containsPoint(point)) {
         clickedPlot = plot;
         break;
@@ -2296,6 +2460,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         double tempMinZoom = _labelMinZoom;
         Color tempColor = _labelColor;
         bool tempHalo = _labelHasHalo;
+        Color tempHaloColor = _labelHaloColor;
         String tempLdlr = _ldlrStandard;
         bool tempShowPlotPolygons = _showPlotPolygons;
         bool tempShowPlotLabels = _showPlotLabels;
@@ -2308,17 +2473,6 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         ];
         final availableDenominatorFields = [
           'DIEN_TIC', 'TEN_LO', 'CHU_V', 'X', 'Y', 'LDLR', 'LOAI_CAY', 'KHÔNG HIỆN'
-        ];
-
-        final colorPalette = [
-          const Color(0xFFFFEB3B), // Vàng
-          const Color(0xFFFF9800), // Cam
-          const Color(0xFFF44336), // Đỏ
-          const Color(0xFFE91E63), // Hồng
-          const Color(0xFF9C27B0), // Tím
-          const Color(0xFF00BCD4), // Xanh da trời
-          const Color(0xFFFFFFFF), // Trắng
-          const Color(0xFF4CAF50), // Xanh lá
         ];
 
         return StatefulBuilder(builder: (ctx, setSheetState) {
@@ -2421,12 +2575,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                         color: tempColor,
                                         fontWeight: FontWeight.bold,
                                         fontSize: tempFontSize.clamp(9.0, 18.0),
-                                        shadows: tempHalo
-                                            ? [
-                                                const Shadow(color: Colors.black, blurRadius: 4),
-                                                const Shadow(color: Colors.black, blurRadius: 8),
-                                              ]
-                                            : null,
+                                        shadows: _buildLabelShadows(tempHalo, tempHaloColor),
                                       ),
                                     )
                                   : const Text(
@@ -2673,16 +2822,27 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 12),
 
-                    // Màu chữ
+                    // Màu chữ (Bảng màu phong phú + Nút chọn màu 360°)
                     Row(
                       children: [
-                        const Text('Màu chữ', style: TextStyle(color: Colors.white, fontSize: 13)),
-                        const SizedBox(width: 12),
+                        const Text('Màu chữ', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.palette_outlined, color: Colors.amberAccent, size: 20),
+                          tooltip: 'Chọn màu chữ tùy chỉnh 360°',
+                          onPressed: () {
+                            _openFullColorPickerDialog(
+                              title: 'Chọn màu chữ nhãn',
+                              currentColor: tempColor,
+                              onColorSelected: (c) => setSheetState(() => tempColor = c),
+                            );
+                          },
+                        ),
                         Expanded(
                           child: SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
-                              children: colorPalette.map((c) {
+                              children: appRichPalette.map((c) {
                                 final isSel = tempColor.toARGB32() == c.toARGB32();
                                 return GestureDetector(
                                   onTap: () => setSheetState(() => tempColor = c),
@@ -2711,22 +2871,84 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 12),
 
-                    // Viền trắng
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Viền chữ', style: TextStyle(color: Colors.white, fontSize: 13)),
-                        Row(
-                          children: [
-                            Switch(
-                              value: tempHalo,
-                              activeColor: const Color(0xFF673AB7),
-                              onChanged: (val) => setSheetState(() => tempHalo = val),
+                    // Viền chữ (Bật/Tắt + Chọn màu viền phong phú)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1B223C),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Viền chữ', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                              Row(
+                                children: [
+                                  Switch(
+                                    value: tempHalo,
+                                    activeColor: const Color(0xFF673AB7),
+                                    onChanged: (val) => setSheetState(() => tempHalo = val),
+                                  ),
+                                  const Text('chữ đậm viền tương phản – dễ đọc', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                                ],
+                              ),
+                            ],
+                          ),
+                          if (tempHalo) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Text('Màu viền', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.palette_outlined, color: Colors.cyanAccent, size: 20),
+                                  tooltip: 'Chọn màu viền tùy chỉnh 360°',
+                                  onPressed: () {
+                                    _openFullColorPickerDialog(
+                                      title: 'Chọn màu viền chữ',
+                                      currentColor: tempHaloColor,
+                                      onColorSelected: (c) => setSheetState(() => tempHaloColor = c),
+                                    );
+                                  },
+                                ),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: appRichPalette.map((c) {
+                                        final isSel = tempHaloColor.toARGB32() == c.toARGB32();
+                                        return GestureDetector(
+                                          onTap: () => setSheetState(() => tempHaloColor = c),
+                                          child: Container(
+                                            margin: const EdgeInsets.only(right: 8),
+                                            width: 26,
+                                            height: 26,
+                                            decoration: BoxDecoration(
+                                              color: c,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: isSel ? Colors.white : Colors.white30,
+                                                width: isSel ? 3 : 1,
+                                              ),
+                                            ),
+                                            child: isSel
+                                                ? Icon(Icons.check, size: 14, color: c.computeLuminance() > 0.5 ? Colors.black : Colors.white)
+                                                : null,
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const Text('chữ đậm viền tương phản – dễ đọc', style: TextStyle(color: Colors.white70, fontSize: 11)),
                           ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 18),
 
@@ -2750,6 +2972,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 tempMinZoom = 15.0;
                                 tempColor = const Color(0xFFFFEB3B);
                                 tempHalo = true;
+                                tempHaloColor = const Color(0xFF000000);
                                 tempLdlr = 'TT33';
                                 tempShowPlotPolygons = true;
                                 tempShowPlotLabels = true;
@@ -2786,6 +3009,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 _labelMinZoom = tempMinZoom;
                                 _labelColor = tempColor;
                                 _labelHasHalo = tempHalo;
+                                _labelHaloColor = tempHaloColor;
                                 _ldlrStandard = tempLdlr;
                                 _showPlotPolygons = tempShowPlotPolygons;
                                 _showPlotLabels = tempShowPlotLabels;
@@ -2793,6 +3017,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 _showPois = tempShowPois;
                                 _plotOpacity = tempPlotOpacity;
                               });
+                              _savePersistentData();
                               Navigator.pop(ctx);
                               _showToast('Đã áp dụng định dạng và lớp hiển thị mới lên bản đồ!');
                             },
@@ -2910,13 +3135,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         color: _labelColor,
                         fontWeight: FontWeight.bold,
                         fontSize: _labelFontSize,
-                        shadows: _labelHasHalo
-                            ? [
-                                const Shadow(color: Colors.black, blurRadius: 4),
-                                const Shadow(color: Colors.black, blurRadius: 6),
-                                const Shadow(color: Colors.black, blurRadius: 2),
-                              ]
-                            : null,
+                        shadows: _buildLabelShadows(_labelHasHalo, _labelHaloColor),
                       ),
                     );
                   }).toList(),
@@ -3948,11 +4167,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               : (MediaQuery.of(ctx).padding.bottom > 0 ? MediaQuery.of(ctx).padding.bottom : 48.0);
           final safeBottom = bottomInset + 24.0;
 
-          // Tổng hợp tất cả các nhóm từ cả _plots và _poiList
-          final Set<String> allGroupNames = {
-            ..._plots.map((p) => p.groupName),
-            ..._poiList.map((p) => p.groupName),
-          };
+          // Tổng hợp tất cả các nhóm từ cả _plots và _poiList theo thứ tự lớp đã lưu
+          final List<String> allGroupNames = _getCurrentGroupOrder();
 
           return Container(
             decoration: const BoxDecoration(
@@ -3998,9 +4214,19 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  'NHÓM DỮ LIỆU ĐÃ NHẬP (${allGroupNames.length})',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B5E20)),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'NHÓM DỮ LIỆU ĐÃ NHẬP (${allGroupNames.length})',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B5E20)),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    const Text(
+                                      'Lớp #1 nằm trên cùng, các lớp sau nằm dưới',
+                                      style: TextStyle(fontSize: 10.5, fontStyle: FontStyle.italic, color: Colors.black54),
+                                    ),
+                                  ],
                                 ),
                                 if (allGroupNames.isNotEmpty)
                                   Row(
@@ -4035,7 +4261,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 child: Text('Chưa có nhóm dữ liệu nào được nạp', style: TextStyle(fontSize: 12, color: Colors.grey)),
                               )
                             else
-                              ...allGroupNames.map((gName) {
+                              ...allGroupNames.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final gName = entry.value;
                                 final plotsInGroup = _plots.where((p) => p.groupName == gName).toList();
                                 final poisInGroup = _poiList.where((p) => p.groupName == gName).toList();
                                 final isHidden = _hiddenGroups.contains(gName);
@@ -4055,7 +4283,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
                                 return Container(
                                   margin: const EdgeInsets.symmetric(vertical: 4),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                   decoration: BoxDecoration(
                                     color: isHidden ? Colors.grey.shade100 : Colors.white,
                                     borderRadius: BorderRadius.circular(10),
@@ -4066,8 +4294,148 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                   ),
                                   child: Row(
                                     children: [
+                                      // Cụm di chuyển thứ tự Lớp (Lên / Xuống)
+                                      Container(
+                                        margin: const EdgeInsets.only(right: 4),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            InkWell(
+                                              borderRadius: BorderRadius.circular(4),
+                                              onTap: index > 0
+                                                  ? () {
+                                                      final item = _datasetGroupOrder.removeAt(index);
+                                                      _datasetGroupOrder.insert(index - 1, item);
+                                                      _savePersistentData();
+                                                      setState(() {});
+                                                      setSheetState(() {});
+                                                      _showToast('Đã di chuyển "$gName" lên vị trí #$index');
+                                                    }
+                                                  : null,
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(2.0),
+                                                child: Icon(
+                                                  Icons.arrow_drop_up,
+                                                  size: 24,
+                                                  color: index > 0 ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                                                ),
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: index == 0
+                                                    ? const Color(0xFF2E7D32)
+                                                    : const Color(0xFF2E7D32).withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                '#${index + 1}',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: index == 0 ? Colors.white : const Color(0xFF2E7D32),
+                                                ),
+                                              ),
+                                            ),
+                                            InkWell(
+                                              borderRadius: BorderRadius.circular(4),
+                                              onTap: index < allGroupNames.length - 1
+                                                  ? () {
+                                                      final item = _datasetGroupOrder.removeAt(index);
+                                                      _datasetGroupOrder.insert(index + 1, item);
+                                                      _savePersistentData();
+                                                      setState(() {});
+                                                      setSheetState(() {});
+                                                      _showToast('Đã di chuyển "$gName" xuống vị trí #${index + 2}');
+                                                    }
+                                                  : null,
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(2.0),
+                                                child: Icon(
+                                                  Icons.arrow_drop_down,
+                                                  size: 24,
+                                                  color: index < allGroupNames.length - 1 ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                      // Cụm di chuyển thứ tự Lớp (Lên / Xuống)
+                                      Container(
+                                        margin: const EdgeInsets.only(right: 4),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            InkWell(
+                                              borderRadius: BorderRadius.circular(4),
+                                              onTap: index > 0
+                                                  ? () {
+                                                      final item = _datasetGroupOrder.removeAt(index);
+                                                      _datasetGroupOrder.insert(index - 1, item);
+                                                      _savePersistentData();
+                                                      setState(() {});
+                                                      setSheetState(() {});
+                                                      _showToast('Đã di chuyển "$gName" lên vị trí #${index}');
+                                                    }
+                                                  : null,
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(2.0),
+                                                child: Icon(
+                                                  Icons.arrow_drop_up,
+                                                  size: 24,
+                                                  color: index > 0 ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                                                ),
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: index == 0
+                                                    ? const Color(0xFF2E7D32)
+                                                    : const Color(0xFF2E7D32).withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                '#${index + 1}',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: index == 0 ? Colors.white : const Color(0xFF2E7D32),
+                                                ),
+                                              ),
+                                            ),
+                                            InkWell(
+                                              borderRadius: BorderRadius.circular(4),
+                                              onTap: index < allGroupNames.length - 1
+                                                  ? () {
+                                                      final item = _datasetGroupOrder.removeAt(index);
+                                                      _datasetGroupOrder.insert(index + 1, item);
+                                                      _savePersistentData();
+                                                      setState(() {});
+                                                      setSheetState(() {});
+                                                      _showToast('Đã di chuyển "$gName" xuống vị trí #${index + 2}');
+                                                    }
+                                                  : null,
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(2.0),
+                                                child: Icon(
+                                                  Icons.arrow_drop_down,
+                                                  size: 24,
+                                                  color: index < allGroupNames.length - 1 ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
                                       // Nút Bật / Tắt nhóm (Eye icon)
                                       IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                                         icon: Icon(
                                           isHidden ? Icons.visibility_off : Icons.visibility,
                                           color: isHidden ? Colors.grey : const Color(0xFF2E7D32),
@@ -4086,6 +4454,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                           _showToast(isHidden ? 'Đã hiển thị nhóm "$gName"' : 'Đã ẩn nhóm "$gName" khỏi bản đồ');
                                         },
                                       ),
+                                      const SizedBox(width: 4),
 
                                       // Thông tin nhóm
                                       Expanded(
@@ -4140,6 +4509,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
                                       // Nút zoom tới nhóm
                                       IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                                         icon: const Icon(Icons.center_focus_strong, size: 20, color: Color(0xFF1E88E5)),
                                         tooltip: 'Đưa bản đồ tới nhóm này',
                                         onPressed: () {
@@ -4162,6 +4533,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
                                       // Nút xóa nhóm
                                       IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                                         icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
                                         tooltip: 'Xóa nhóm dữ liệu này',
                                         onPressed: () {
@@ -4182,6 +4555,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                                       _plots.removeWhere((p) => p.groupName == gName);
                                                       _poiList.removeWhere((p) => p.groupName == gName);
                                                       _hiddenGroups.remove(gName);
+                                                      _datasetGroupOrder.remove(gName);
                                                     });
                                                     _savePersistentData();
                                                     Navigator.pop(delCtx);
