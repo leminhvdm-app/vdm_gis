@@ -61,6 +61,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   double _gpsWalkCurrentDist = 0.0; // Khoảng cách GPS đã đi từ điểm gần nhất
   String _ldlrStandard = 'TT33'; // Hệ suy LDLR: TT33 hoặc TT16
   List<String> _datasetGroupOrder = []; // Thứ tự các lớp dữ liệu (Lớp 1 nằm đầu tiên trên cùng, lớp 2 nằm dưới...)
+  bool _highPerformanceMode = true; // Chế độ Siêu Mượt khi nhiều Lô (Tối ưu GPU EvenOdd, nén đỉnh & nhãn thông minh)
+  LatLng _lastRenderedCenter = const LatLng(11.3420, 107.0390);
 
   static const List<Map<String, dynamic>> basicBorderColors = [
     {'name': 'Theo màu Lô', 'color': null},
@@ -102,16 +104,24 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     Color(0xFF5D4037), Color(0xFF3E2723), Color(0xFF37474F), Color(0xFF263238),
   ];
 
+  List<Shadow>? _cachedHaloShadows;
+  Color? _cachedHaloColor;
+  bool? _cachedHasHalo;
+
   List<Shadow>? _buildLabelShadows(bool hasHalo, Color haloColor) {
     if (!hasHalo) return null;
-    return [
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, -1)),
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, -1)),
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, 1)),
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, 1)),
-      Shadow(color: haloColor, blurRadius: 6),
-      Shadow(color: haloColor, blurRadius: 2),
+    if (_cachedHaloShadows != null && _cachedHaloColor == haloColor && _cachedHasHalo == hasHalo) {
+      return _cachedHaloShadows;
+    }
+    _cachedHaloColor = haloColor;
+    _cachedHasHalo = hasHalo;
+    _cachedHaloShadows = [
+      Shadow(color: haloColor, blurRadius: 2, offset: const Offset(-1, -1)),
+      Shadow(color: haloColor, blurRadius: 2, offset: const Offset(1, -1)),
+      Shadow(color: haloColor, blurRadius: 2, offset: const Offset(-1, 1)),
+      Shadow(color: haloColor, blurRadius: 2, offset: const Offset(1, 1)),
     ];
+    return _cachedHaloShadows;
   }
 
   List<String> _getCurrentGroupOrder() {
@@ -167,15 +177,15 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   /// Tối ưu hóa hiệu năng render (Spatial Viewport Culling):
-  /// Khi dữ liệu lớn (> 60 lô), chỉ render các Lô nằm trong khung nhìn màn hình hiện tại + viền đệm,
+  /// Khi dữ liệu lớn (> 50 lô), chỉ render các Lô nằm trong khung nhìn màn hình hiện tại + viền đệm,
   /// giúp điện thoại mượt mà 60 FPS, không bị giật lag hay đơ máy.
   List<ForestPlot> get _renderedPlots {
     final all = _visiblePlots;
-    if (all.length <= 60) return all;
+    if (all.length <= 50) return all;
     try {
       final bounds = _mapController.camera.visibleBounds;
-      final latMargin = (bounds.north - bounds.south) * 0.25;
-      final lngMargin = (bounds.east - bounds.west) * 0.25;
+      final latMargin = (bounds.north - bounds.south) * 0.45;
+      final lngMargin = (bounds.east - bounds.west) * 0.45;
       final expandedBounds = LatLngBounds(
         LatLng(bounds.south - latMargin, bounds.west - lngMargin),
         LatLng(bounds.north + latMargin, bounds.east + lngMargin),
@@ -302,6 +312,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         'labelNumeratorField': _labelNumeratorField,
         'labelDenominatorField': _labelDenominatorField,
         'plotOpacity': _plotOpacity,
+        'highPerformanceMode': _highPerformanceMode,
       };
       await file.writeAsString(jsonEncode(data));
     } catch (e) {
@@ -362,6 +373,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           }
           if (data['plotOpacity'] != null) {
             _plotOpacity = (data['plotOpacity'] as num).toDouble();
+          }
+          if (data['highPerformanceMode'] != null) {
+            _highPerformanceMode = data['highPerformanceMode'] as bool;
           }
           _invalidatePlotCache();
         });
@@ -1057,7 +1071,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 child: Column(
                   children: const [
                     Text(
-                      'Phiên bản: 1.0.1',
+                      'Phiên bản: 1.0.2',
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54),
                     ),
                     SizedBox(height: 2),
@@ -2623,6 +2637,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         bool tempShowPatrolTracks = _showPatrolTracks;
         bool tempShowPois = _showPois;
         double tempPlotOpacity = _plotOpacity;
+        bool tempHighPerformance = _highPerformanceMode;
 
         final availableNumeratorFields = [
           'TEN_LO', 'DIEN_TIC', 'CHU_V', 'X', 'Y', 'LDLR', 'NTRUONG', 'CTY', 'KHÔNG HIỆN'
@@ -3087,6 +3102,37 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 18),
 
+                    // Cấu hình Chế độ Siêu Mượt khi nhiều Lô (Tối ưu GPU EvenOdd & nén đỉnh)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1B223C),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.3)),
+                      ),
+                      child: SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Row(
+                          children: [
+                            Icon(Icons.bolt, color: Colors.amberAccent, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Chế độ Siêu Mượt khi nhiều Lô',
+                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        subtitle: const Text(
+                          'Tối ưu GPU EvenOdd, nén đỉnh đa giác & tự động ẩn nhãn khi zoom xa để giữ 60 FPS mượt mà',
+                          style: TextStyle(color: Colors.white60, fontSize: 11),
+                        ),
+                        value: tempHighPerformance,
+                        activeColor: Colors.greenAccent,
+                        onChanged: (val) => setSheetState(() => tempHighPerformance = val),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
                     // Nút Đặt lại & Áp dụng lên bản đồ
                     Row(
                       children: [
@@ -3114,6 +3160,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 tempShowPatrolTracks = true;
                                 tempShowPois = true;
                                 tempPlotOpacity = 0.45;
+                                tempHighPerformance = true;
                               });
                               setState(() {
                                 _showPlotPolygons = true;
@@ -3152,6 +3199,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 _showPatrolTracks = tempShowPatrolTracks;
                                 _showPois = tempShowPois;
                                 _plotOpacity = tempPlotOpacity;
+                                _highPerformanceMode = tempHighPerformance;
                               });
                               _savePersistentData();
                               Navigator.pop(ctx);
@@ -3212,8 +3260,15 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 if (camera.rotation != _currentMapRotation) {
                   setState(() => _currentMapRotation = camera.rotation);
                 }
-                if ((camera.zoom - _currentMapZoom).abs() > 0.2) {
+                if ((camera.zoom - _currentMapZoom).abs() > 0.15) {
                   setState(() => _currentMapZoom = camera.zoom);
+                } else if (_plots.length > 50) {
+                  final dist = (camera.center.latitude - _lastRenderedCenter.latitude).abs() +
+                      (camera.center.longitude - _lastRenderedCenter.longitude).abs();
+                  if (dist > 0.008) {
+                    _lastRenderedCenter = camera.center;
+                    setState(() {});
+                  }
                 }
               },
             ),
@@ -3239,42 +3294,55 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                   ],
                 ),
 
-              // Lớp Đa Giác Lô Rừng (Áp dụng Viewport Culling siêu mượt)
+              // Lớp Đa Giác Lô Rừng (Áp dụng GPU EvenOdd & Viewport Culling siêu mượt)
               if (_showPlotPolygons)
                 PolygonLayer(
-                  polygons: _renderedPlots.map((plot) {
-                    final isSelected = _selectedPlot?.id == plot.id;
-                    final isGpsHere = _plotUnderGps?.id == plot.id;
-                    final isEditing = _editingPlot?.id == plot.id;
+                  simplificationTolerance: _highPerformanceMode ? 0.6 : 0.3,
+                  painterFillMethod: PolygonPainterFillMethod.evenOdd,
+                  polygonCulling: true,
+                  polygons: () {
+                    final rendered = _renderedPlots;
+                    final totalRendered = rendered.length;
+                    // Tự động tinh chỉnh nhãn thông minh khi có nhiều Lô
+                    final bool allowGeneralLabels = _showPlotLabels &&
+                        _currentMapZoom >= _labelMinZoom &&
+                        (!_highPerformanceMode || totalRendered <= 80 || _currentMapZoom >= 15.8);
 
-                    return Polygon(
-                      points: plot.boundary,
-                      color: isEditing
-                          ? Colors.purple.withValues(alpha: 0.4)
-                          : isSelected
-                              ? Colors.yellow.withValues(alpha: 0.55)
-                              : isGpsHere
-                                  ? Colors.greenAccent.withValues(alpha: 0.55)
-                                  : plot.color.withValues(alpha: _plotOpacity),
-                      borderColor: isEditing
-                          ? Colors.purple
-                          : isSelected
-                              ? Colors.amber[900]!
-                              : isGpsHere
-                                  ? Colors.green[900]!
-                                  : (_polygonBorderColor ?? plot.color),
-                      borderStrokeWidth: isSelected || isGpsHere || isEditing ? 3.5 : 2.0,
-                      label: (_showPlotLabels && _currentMapZoom >= _labelMinZoom)
-                          ? _getPlotLabelText(plot)
-                          : null,
-                      labelStyle: TextStyle(
-                        color: _labelColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: _labelFontSize,
-                        shadows: _buildLabelShadows(_labelHasHalo, _labelHaloColor),
-                      ),
+                    final baseLabelStyle = TextStyle(
+                      color: _labelColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: _labelFontSize,
+                      shadows: _buildLabelShadows(_labelHasHalo, _labelHaloColor),
                     );
-                  }).toList(),
+
+                    return rendered.map((plot) {
+                      final isSelected = _selectedPlot?.id == plot.id;
+                      final isGpsHere = _plotUnderGps?.id == plot.id;
+                      final isEditing = _editingPlot?.id == plot.id;
+                      final shouldShowLabel = allowGeneralLabels || isSelected || isGpsHere;
+
+                      return Polygon(
+                        points: plot.boundary,
+                        color: isEditing
+                            ? Colors.purple.withValues(alpha: 0.4)
+                            : isSelected
+                                ? Colors.yellow.withValues(alpha: 0.55)
+                                : isGpsHere
+                                    ? Colors.greenAccent.withValues(alpha: 0.55)
+                                    : plot.color.withValues(alpha: _plotOpacity),
+                        borderColor: isEditing
+                            ? Colors.purple
+                            : isSelected
+                                ? Colors.amber[900]!
+                                : isGpsHere
+                                    ? Colors.green[900]!
+                                    : (_polygonBorderColor ?? plot.color),
+                        borderStrokeWidth: isSelected || isGpsHere || isEditing ? 3.5 : 2.0,
+                        label: shouldShowLabel ? _getPlotLabelText(plot) : null,
+                        labelStyle: baseLabelStyle,
+                      );
+                    }).toList();
+                  }(),
                 ),
 
               // Lớp Đang Số Hóa Lô Mới / Đo đạc GPS / Bấm điểm (Hỗ trợ kéo thả di chuyển đỉnh)

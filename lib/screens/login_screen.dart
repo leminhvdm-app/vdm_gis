@@ -404,7 +404,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               Icon(Icons.verified, size: 15, color: Colors.amberAccent),
                               SizedBox(width: 6),
                               Text(
-                                'Phiên bản: 1.0.1',
+                                'Phiên bản: 1.0.2',
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.bold,
