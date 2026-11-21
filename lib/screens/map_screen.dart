@@ -30,7 +30,7 @@ import 'login_screen.dart';
 import 'pdf_viewer_screen.dart';
 
 enum MapBaseLayer { googleHybrid, googleSatellite, esriSatellite, esriClarity, openTopo, openStreetMap }
-enum AppInteractionMode { normal, measureDistance, measureArea, digitizePlot, editVertex }
+enum AppInteractionMode { normal, measureDistance, measureArea, digitizePlot, editVertex, gpsSurveyWalk }
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -57,64 +57,22 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   Color _labelColor = const Color(0xFFFFEB3B); // Màu chữ vàng sáng
   bool _labelHasHalo = true; // Chữ đậm viền tương phản dễ đọc
   Color _labelHaloColor = const Color(0xFF000000); // Màu viền chữ (Mặc định: Đen)
+  Color? _polygonBorderColor; // Màu viền các lớp đa giác (null = Mặc định theo màu Lô)
+  double _gpsWalkCurrentDist = 0.0; // Khoảng cách GPS đã đi từ điểm gần nhất
   String _ldlrStandard = 'TT33'; // Hệ suy LDLR: TT33 hoặc TT16
   List<String> _datasetGroupOrder = []; // Thứ tự các lớp dữ liệu (Lớp 1 nằm đầu tiên trên cùng, lớp 2 nằm dưới...)
 
-  static const List<Color> appRichPalette = [
-    // 1. Vàng & Chanh (Yellow & Lime)
-    Color(0xFFFFEB3B), Color(0xFFFDD835), Color(0xFFFBC02D), Color(0xFFF57F17),
-    Color(0xFFCDDC39), Color(0xFFAEEA00), Color(0xFF76FF03), Color(0xFF64DD17),
-    // 2. Cam & Hổ phách (Orange & Amber)
-    Color(0xFFFF9800), Color(0xFFFB8C00), Color(0xFFF57C00), Color(0xFFEF6C00),
-    Color(0xFFFF6F00), Color(0xFFFF8F00), Color(0xFFFFA000), Color(0xFFFFB300),
-    // 3. Đỏ & Hồng (Red & Pink)
-    Color(0xFFF44336), Color(0xFFE53935), Color(0xFFD32F2F), Color(0xFFC62828),
-    Color(0xFFB71C1C), Color(0xFFFF1744), Color(0xFFD50000), Color(0xFFFF5252),
-    Color(0xFFE91E63), Color(0xFFD81B60), Color(0xFFC2185B), Color(0xFFAD1457),
-    // 4. Tím & Tím than (Purple & Violet)
-    Color(0xFF9C27B0), Color(0xFF8E24AA), Color(0xFF7B1FA2), Color(0xFF6A1B9A),
-    Color(0xFF4A148C), Color(0xFF673AB7), Color(0xFF512DA8), Color(0xFF4527A0),
-    // 5. Xanh dương & Cyan (Blue, Cyan, Teal)
-    Color(0xFF00BCD4), Color(0xFF00ACC1), Color(0xFF0097A7), Color(0xFF00838F),
-    Color(0xFF006064), Color(0xFF00E5FF), Color(0xFF00B0FF), Color(0xFF0091EA),
-    Color(0xFF2196F3), Color(0xFF1976D2), Color(0xFF1565C0), Color(0xFF0D47A1),
-    Color(0xFF3F51B5), Color(0xFF303F9F), Color(0xFF283593), Color(0xFF1A237E),
-    // 6. Xanh lá & Xanh rừng (Green & Forest)
-    Color(0xFF4CAF50), Color(0xFF43A047), Color(0xFF388E3C), Color(0xFF2E7D32),
-    Color(0xFF1B5E20), Color(0xFF004D40), Color(0xFF00796B), Color(0xFF009688),
-    // 7. Đen, Xám, Trắng, Nâu (Neutrals)
-    Color(0xFFFFFFFF), Color(0xFFE0E0E0), Color(0xFF9E9E9E), Color(0xFF757575),
-    Color(0xFF424242), Color(0xFF212121), Color(0xFF000000), Color(0xFF795548),
-    Color(0xFF5D4037), Color(0xFF3E2723), Color(0xFF37474F), Color(0xFF263238),
+  static const List<Map<String, dynamic>> basicBorderColors = [
+    {'name': 'Theo màu Lô', 'color': null},
+    {'name': 'Đen', 'color': Color(0xFF000000)},
+    {'name': 'Trắng', 'color': Color(0xFFFFFFFF)},
+    {'name': 'Đỏ', 'color': Color(0xFFD50000)},
+    {'name': 'Vàng', 'color': Color(0xFFFFD600)},
+    {'name': 'Cam', 'color': Color(0xFFFF6D00)},
+    {'name': 'Xanh lá', 'color': Color(0xFF1B5E20)},
+    {'name': 'Xanh dương', 'color': Color(0xFF2962FF)},
+    {'name': 'Tím', 'color': Color(0xFF6200EA)},
   ];
-
-  List<Shadow>? _buildLabelShadows(bool hasHalo, Color haloColor) {
-    if (!hasHalo) return null;
-    return [
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, -1)),
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, -1)),
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(-1, 1)),
-      Shadow(color: haloColor, blurRadius: 3, offset: const Offset(1, 1)),
-      Shadow(color: haloColor, blurRadius: 6),
-      Shadow(color: haloColor, blurRadius: 2),
-    ];
-  }
-
-  List<String> _getCurrentGroupOrder() {
-    final Set<String> existingGroups = {
-      ..._plots.map((p) => p.groupName),
-      ..._poiList.map((p) => p.groupName),
-    };
-
-    final List<String> ordered = _datasetGroupOrder.where((g) => existingGroups.contains(g)).toList();
-    for (var g in existingGroups) {
-      if (!ordered.contains(g)) {
-        ordered.add(g);
-      }
-    }
-    _datasetGroupOrder = ordered;
-    return ordered;
-  }
 
   static const List<Color> appRichPalette = [
     // 1. Vàng & Chanh (Yellow & Lime)
@@ -184,20 +142,27 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
   // Quản lý hiển thị và nhóm dữ liệu đã nhập (Bật/tắt từng nhóm riêng biệt, tránh nằm chồng lên nhau)
   final Set<String> _hiddenGroups = {};
+  List<ForestPlot>? _cachedVisiblePlots;
+
+  void _invalidatePlotCache() {
+    _cachedVisiblePlots = null;
+  }
 
   List<ForestPlot> get _visiblePlots {
+    if (_cachedVisiblePlots != null) return _cachedVisiblePlots!;
     final list = _plots.where((p) => !_hiddenGroups.contains(p.groupName)).toList();
     final order = _getCurrentGroupOrder();
-    if (order.isEmpty) return list;
-
-    list.sort((a, b) {
-      final indexA = order.indexOf(a.groupName);
-      final indexB = order.indexOf(b.groupName);
-      final rankA = indexA == -1 ? 999 : indexA;
-      final rankB = indexB == -1 ? 999 : indexB;
-      // rankB.compareTo(rankA): Lớp thứ tự lớn vẽ trước, Lớp #1 (index 0) vẽ sau cùng để hiển thị trên cùng
-      return rankB.compareTo(rankA);
-    });
+    if (order.isNotEmpty) {
+      list.sort((a, b) {
+        final indexA = order.indexOf(a.groupName);
+        final indexB = order.indexOf(b.groupName);
+        final rankA = indexA == -1 ? 999 : indexA;
+        final rankB = indexB == -1 ? 999 : indexB;
+        // rankB.compareTo(rankA): Lớp thứ tự lớn vẽ trước, Lớp #1 (index 0) vẽ sau cùng để hiển thị trên cùng
+        return rankB.compareTo(rankA);
+      });
+    }
+    _cachedVisiblePlots = list;
     return list;
   }
 
@@ -262,6 +227,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   UserProfile _userProfile = UserProfile();
 
   // Đồng hồ thực tế & Nhiệt độ thời gian thực
+  final ValueNotifier<DateTime> _clockNotifier = ValueNotifier(DateTime.now());
   Timer? _clockTimer;
   String _currentTemperature = '--';
   DateTime? _lastWeatherFetchTime;
@@ -276,9 +242,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     // Tự động tải lại tất cả các lớp dữ liệu đã nạp trước đó từ bộ nhớ máy
     _loadPersistentData();
 
-    // Cập nhật đồng hồ hiển thị theo thời gian thực mỗi giây
+    // Cập nhật đồng hồ hiển thị theo thời gian thực mỗi giây (dùng ValueNotifier để tránh rebuild toàn bộ Map)
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      _clockNotifier.value = DateTime.now();
     });
 
     // Nạp cấu hình Firebase và tự động đẩy các mục hàng đợi ngoại tuyến khi có mạng
@@ -292,6 +258,27 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _clearAppCacheAndOptimize() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (tempDir.existsSync()) {
+        for (var file in tempDir.listSync()) {
+          try {
+            file.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
+      _alertedPoiIds.clear();
+      _invalidatePlotCache();
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      setState(() {});
+      _showToast('Đã dọn sạch bộ nhớ đệm (Cache) & giải phóng RAM!');
+    } catch (e) {
+      _showToast('Đã dọn dẹp và tối ưu bộ nhớ app');
+    }
+  }
+
   Future<File> _getStorageFile() async {
     final dir = await getApplicationDocumentsDirectory();
     return File('${dir.path}/vdm_gis_persistent_layers.json');
@@ -299,6 +286,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
   Future<void> _savePersistentData() async {
     try {
+      _invalidatePlotCache();
       final file = await _getStorageFile();
       final data = {
         'plots': _plots.map((p) => p.toMap()).toList(),
@@ -308,6 +296,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         'labelColor': _labelColor.toARGB32(),
         'labelHasHalo': _labelHasHalo,
         'labelHaloColor': _labelHaloColor.toARGB32(),
+        'polygonBorderColor': _polygonBorderColor?.toARGB32(),
         'labelFontSize': _labelFontSize,
         'labelMinZoom': _labelMinZoom,
         'labelNumeratorField': _labelNumeratorField,
@@ -356,6 +345,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           if (data['labelHaloColor'] != null) {
             _labelHaloColor = Color(data['labelHaloColor'] as int);
           }
+          if (data['polygonBorderColor'] != null) {
+            _polygonBorderColor = Color(data['polygonBorderColor'] as int);
+          }
           if (data['labelFontSize'] != null) {
             _labelFontSize = (data['labelFontSize'] as num).toDouble();
           }
@@ -371,6 +363,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           if (data['plotOpacity'] != null) {
             _plotOpacity = (data['plotOpacity'] as num).toDouble();
           }
+          _invalidatePlotCache();
         });
 
         if (_plots.isNotEmpty) {
@@ -408,6 +401,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     UserSessionTracker().endSession();
     _clockTimer?.cancel();
+    _clockNotifier.dispose();
     _positionStreamSub?.cancel();
     super.dispose();
   }
@@ -586,6 +580,21 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       if (_activePatrol!.points.isEmpty ||
           GisCalculator.calculateDistanceInMeters(_activePatrol!.points.last, latLng) > 2.0) {
         _activePatrol!.points.add(latLng);
+      }
+    }
+
+    // Đo đạc tự động theo GPS (cầm ĐT đi khoảng 5m tự thêm 1 điểm)
+    if (_mode == AppInteractionMode.gpsSurveyWalk) {
+      if (_digitizingPoints.isEmpty) {
+        _digitizingPoints.add(latLng);
+        _gpsWalkCurrentDist = 0.0;
+      } else {
+        final dist = GisCalculator.calculateDistanceInMeters(_digitizingPoints.last, latLng);
+        _gpsWalkCurrentDist = dist;
+        if (dist >= 5.0) {
+          _digitizingPoints.add(latLng);
+          _gpsWalkCurrentDist = 0.0;
+        }
       }
     }
 
@@ -986,6 +995,58 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         ),
                       ),
                       Icon(Icons.arrow_forward_ios, size: 16, color: Color(0xFF1B5E20)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // MỤC 3: DỌN DẸP BỘ NHỚ ĐỆM (CACHE) & TỐI ƯU APP
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _clearAppCacheAndOptimize();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00796B).withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFF00796B).withValues(alpha: 0.3),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Color(0xFFE0F2F1),
+                        radius: 20,
+                        child: Icon(Icons.cleaning_services, color: Color(0xFF00796B), size: 22),
+                      ),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'DỌN DẸP BỘ NHỚ ĐỆM (CACHE)',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF00796B),
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Xóa rác, giải phóng RAM, giúp app chạy nhẹ & mượt hơn',
+                              style: TextStyle(fontSize: 11, color: Colors.black54),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.arrow_forward_ios, size: 16, color: Color(0xFF00796B)),
                     ],
                   ),
                 ),
@@ -1739,6 +1800,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     }
 
     final double areaHa = GisCalculator.calculateAreaInHectares(_digitizingPoints);
+    final double perimeterM = GisCalculator.calculateTotalDistanceInMeters(_digitizingPoints, isClosed: true);
     final formKey = GlobalKey<FormState>();
     final tkCtrl = TextEditingController(text: 'TK 142');
     final kCtrl = TextEditingController(text: 'Khoảnh 2');
@@ -1758,72 +1820,142 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               Text('Lưu Lô Rừng Mới', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
-          content: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Diện tích đo đạc:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              Text('${areaHa.toStringAsFixed(2)} ha (${(areaHa * 10000).toStringAsFixed(0)} m²)',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B5E20), fontSize: 14)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Chu vi khép kín:', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                              Text('${perimeterM.toStringAsFixed(1)} m',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87, fontSize: 13)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Số đỉnh tọa độ:', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                              Text('${_digitizingPoints.length} điểm',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.blueAccent, fontSize: 13)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // Danh sách bảng tọa độ đỉnh
+                    Theme(
+                      data: Theme.of(ctx).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        dense: true,
+                        tilePadding: EdgeInsets.zero,
+                        title: Text('Xem bảng tọa độ ${_digitizingPoints.length} đỉnh (VN-2000)',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20))),
+                        children: [
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 160),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: _digitizingPoints.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (c, i) {
+                                final p = _digitizingPoints[i];
+                                final vn = Vn2000Converter.toVN2000(p);
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('Đỉnh #${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                      Text('X: ${vn['x']?.toStringAsFixed(1) ?? ''} | Y: ${vn['y']?.toStringAsFixed(1) ?? ''}',
+                                          style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
                       children: [
-                        const Text('Diện tích đo đạc:', style: TextStyle(fontWeight: FontWeight.bold)),
-                        Text('${areaHa.toStringAsFixed(2)} ha',
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
+                        Expanded(
+                          child: TextFormField(
+                            controller: tkCtrl,
+                            decoration: const InputDecoration(labelText: 'Tiểu khu', border: OutlineInputBorder()),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: kCtrl,
+                            decoration: const InputDecoration(labelText: 'Khoảnh', border: OutlineInputBorder()),
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: tkCtrl,
-                          decoration: const InputDecoration(labelText: 'Tiểu khu', border: OutlineInputBorder()),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          controller: kCtrl,
-                          decoration: const InputDecoration(labelText: 'Khoảnh', border: OutlineInputBorder()),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: loCtrl,
-                    decoration: const InputDecoration(labelText: 'Tên Lô (Ví dụ: Lô 5c)', border: OutlineInputBorder()),
-                    validator: (v) => v == null || v.isEmpty ? 'Vui lòng nhập tên Lô' : null,
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    value: selectedTrangThai,
-                    decoration: const InputDecoration(labelText: 'Trạng thái rừng', border: OutlineInputBorder()),
-                    items: const [
-                      DropdownMenuItem(value: 'Rừng tự nhiên giàu', child: Text('Rừng tự nhiên giàu')),
-                      DropdownMenuItem(value: 'Rừng trồng sản xuất', child: Text('Rừng trồng sản xuất')),
-                      DropdownMenuItem(value: 'Rừng trồng cao su', child: Text('Rừng trồng cao su')),
-                      DropdownMenuItem(value: 'Đất trống có cây tái sinh', child: Text('Đất trống tái sinh')),
-                      DropdownMenuItem(value: 'Rừng phòng hộ đầu nguồn', child: Text('Rừng phòng hộ')),
-                    ],
-                    onChanged: (v) => selectedTrangThai = v ?? selectedTrangThai,
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: chuRungCtrl,
-                    decoration: const InputDecoration(labelText: 'Chủ rừng', border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: loaiCayCtrl,
-                    decoration: const InputDecoration(labelText: 'Loài cây chính', border: OutlineInputBorder()),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: loCtrl,
+                      decoration: const InputDecoration(labelText: 'Tên Lô (Ví dụ: Lô 5c)', border: OutlineInputBorder()),
+                      validator: (v) => v == null || v.isEmpty ? 'Vui lòng nhập tên Lô' : null,
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: selectedTrangThai,
+                      decoration: const InputDecoration(labelText: 'Trạng thái rừng', border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: 'Rừng tự nhiên giàu', child: Text('Rừng tự nhiên giàu')),
+                        DropdownMenuItem(value: 'Rừng trồng sản xuất', child: Text('Rừng trồng sản xuất')),
+                        DropdownMenuItem(value: 'Rừng trồng cao su', child: Text('Rừng trồng cao su')),
+                        DropdownMenuItem(value: 'Đất trống có cây tái sinh', child: Text('Đất trống tái sinh')),
+                        DropdownMenuItem(value: 'Rừng phòng hộ đầu nguồn', child: Text('Rừng phòng hộ')),
+                      ],
+                      onChanged: (v) => selectedTrangThai = v ?? selectedTrangThai,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: chuRungCtrl,
+                      decoration: const InputDecoration(labelText: 'Chủ rừng', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: loaiCayCtrl,
+                      decoration: const InputDecoration(labelText: 'Loài cây chính', border: OutlineInputBorder()),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1850,12 +1982,14 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                   setState(() {
                     _plots.add(newPlot);
                     _digitizingPoints.clear();
+                    _selectedVertexIndex = null;
                     _mode = AppInteractionMode.normal;
                   });
+                  _invalidatePlotCache();
                   _savePersistentData();
 
                   Navigator.pop(ctx);
-                  _showToast('Đã lưu thành công ${newPlot.fullName}!');
+                  _showToast('Đã lưu thành công ${newPlot.fullName} (${areaHa.toStringAsFixed(2)} ha)!');
                 }
               },
               child: const Text('Lưu vào bản đồ'),
@@ -2349,7 +2483,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if (_mode == AppInteractionMode.digitizePlot) {
+    if (_mode == AppInteractionMode.digitizePlot || _mode == AppInteractionMode.gpsSurveyWalk) {
       _addPointToDigitizing(point);
       return;
     }
@@ -2460,7 +2594,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         double tempMinZoom = _labelMinZoom;
         Color tempColor = _labelColor;
         bool tempHalo = _labelHasHalo;
-        Color tempHaloColor = _labelHaloColor;
+        Color? tempPolygonBorderColor = _polygonBorderColor;
         String tempLdlr = _ldlrStandard;
         bool tempShowPlotPolygons = _showPlotPolygons;
         bool tempShowPlotLabels = _showPlotLabels;
@@ -2560,7 +2694,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 color: Colors.amber.withValues(alpha: tempShowPlotPolygons ? tempPlotOpacity : 0.05),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: tempShowPlotPolygons ? Colors.amber : Colors.white24,
+                                  color: tempShowPlotPolygons
+                                      ? (tempPolygonBorderColor ?? Colors.amber)
+                                      : Colors.white24,
                                   width: tempShowPlotPolygons ? 2 : 1,
                                 ),
                               ),
@@ -2575,7 +2711,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                         color: tempColor,
                                         fontWeight: FontWeight.bold,
                                         fontSize: tempFontSize.clamp(9.0, 18.0),
-                                        shadows: _buildLabelShadows(tempHalo, tempHaloColor),
+                                        shadows: _buildLabelShadows(tempHalo, const Color(0xFF000000)),
                                       ),
                                     )
                                   : const Text(
@@ -2871,84 +3007,61 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 12),
 
-                    // Viền chữ (Bật/Tắt + Chọn màu viền phong phú)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1B223C),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Viền chữ', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                              Row(
-                                children: [
-                                  Switch(
-                                    value: tempHalo,
-                                    activeColor: const Color(0xFF673AB7),
-                                    onChanged: (val) => setSheetState(() => tempHalo = val),
-                                  ),
-                                  const Text('chữ đậm viền tương phản – dễ đọc', style: TextStyle(color: Colors.white70, fontSize: 11)),
-                                ],
-                              ),
-                            ],
-                          ),
-                          if (tempHalo) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Text('Màu viền', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.palette_outlined, color: Colors.cyanAccent, size: 20),
-                                  tooltip: 'Chọn màu viền tùy chỉnh 360°',
-                                  onPressed: () {
-                                    _openFullColorPickerDialog(
-                                      title: 'Chọn màu viền chữ',
-                                      currentColor: tempHaloColor,
-                                      onColorSelected: (c) => setSheetState(() => tempHaloColor = c),
-                                    );
-                                  },
-                                ),
-                                Expanded(
-                                  child: SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      children: appRichPalette.map((c) {
-                                        final isSel = tempHaloColor.toARGB32() == c.toARGB32();
-                                        return GestureDetector(
-                                          onTap: () => setSheetState(() => tempHaloColor = c),
-                                          child: Container(
-                                            margin: const EdgeInsets.only(right: 8),
-                                            width: 26,
-                                            height: 26,
-                                            decoration: BoxDecoration(
-                                              color: c,
-                                              shape: BoxShape.circle,
-                                              border: Border.all(
-                                                color: isSel ? Colors.white : Colors.white30,
-                                                width: isSel ? 3 : 1,
-                                              ),
-                                            ),
-                                            child: isSel
-                                                ? Icon(Icons.check, size: 14, color: c.computeLuminance() > 0.5 ? Colors.black : Colors.white)
-                                                : null,
-                                          ),
-                                        );
-                                      }).toList(),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                    // Viền chữ (chỉ để mặc định in đậm viền tương phản như cũ)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Viền chữ', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                        Row(
+                          children: [
+                            Switch(
+                              value: tempHalo,
+                              activeColor: const Color(0xFF673AB7),
+                              onChanged: (val) => setSheetState(() => tempHalo = val),
                             ),
+                            const Text('chữ đậm viền tương phản – dễ đọc', style: TextStyle(color: Colors.white70, fontSize: 11)),
                           ],
-                        ],
-                      ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Màu viền đa giác Lô rừng (Polygon Border) - vài màu cơ bản
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Màu viền đa giác Lô rừng (Polygon Border)',
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: basicBorderColors.map((item) {
+                              final Color? c = item['color'] as Color?;
+                              final String name = item['name'] as String;
+                              final isSel = tempPolygonBorderColor?.toARGB32() == c?.toARGB32();
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  avatar: c != null
+                                      ? CircleAvatar(backgroundColor: c, radius: 7)
+                                      : const Icon(Icons.auto_awesome, size: 14, color: Colors.amber),
+                                  label: Text(name,
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                                          color: isSel ? Colors.white : Colors.white70)),
+                                  selected: isSel,
+                                  selectedColor: const Color(0xFF673AB7),
+                                  backgroundColor: const Color(0xFF1B223C),
+                                  side: BorderSide(color: isSel ? Colors.white70 : Colors.white24),
+                                  onSelected: (_) => setSheetState(() => tempPolygonBorderColor = c),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 18),
 
@@ -2972,7 +3085,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 tempMinZoom = 15.0;
                                 tempColor = const Color(0xFFFFEB3B);
                                 tempHalo = true;
-                                tempHaloColor = const Color(0xFF000000);
+                                tempPolygonBorderColor = null;
                                 tempLdlr = 'TT33';
                                 tempShowPlotPolygons = true;
                                 tempShowPlotLabels = true;
@@ -3009,7 +3122,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 _labelMinZoom = tempMinZoom;
                                 _labelColor = tempColor;
                                 _labelHasHalo = tempHalo;
-                                _labelHaloColor = tempHaloColor;
+                                _labelHaloColor = const Color(0xFF000000);
+                                _polygonBorderColor = tempPolygonBorderColor;
                                 _ldlrStandard = tempLdlr;
                                 _showPlotPolygons = tempShowPlotPolygons;
                                 _showPlotLabels = tempShowPlotLabels;
@@ -3126,7 +3240,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                               ? Colors.amber[900]!
                               : isGpsHere
                                   ? Colors.green[900]!
-                                  : plot.color,
+                                  : (_polygonBorderColor ?? plot.color),
                       borderStrokeWidth: isSelected || isGpsHere || isEditing ? 3.5 : 2.0,
                       label: (_showPlotLabels && _currentMapZoom >= _labelMinZoom)
                           ? _getPlotLabelText(plot)
@@ -3141,39 +3255,79 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                   }).toList(),
                 ),
 
-              // Lớp Đang Số Hóa Lô Mới
-              if (_mode == AppInteractionMode.digitizePlot && _digitizingPoints.isNotEmpty) ...[
+              // Lớp Đang Số Hóa Lô Mới / Đo đạc GPS / Bấm điểm (Hỗ trợ kéo thả di chuyển đỉnh)
+              if ((_mode == AppInteractionMode.digitizePlot || _mode == AppInteractionMode.gpsSurveyWalk) && _digitizingPoints.isNotEmpty) ...[
                 if (_digitizingPoints.length >= 3)
                   PolygonLayer(
                     polygons: [
                       Polygon(
                         points: _digitizingPoints,
-                        color: Colors.greenAccent.withValues(alpha: 0.4),
-                        borderColor: Colors.green[800]!,
+                        color: _mode == AppInteractionMode.gpsSurveyWalk
+                            ? Colors.cyanAccent.withValues(alpha: 0.35)
+                            : Colors.greenAccent.withValues(alpha: 0.4),
+                        borderColor: _mode == AppInteractionMode.gpsSurveyWalk
+                            ? Colors.cyan[800]!
+                            : Colors.green[800]!,
                         borderStrokeWidth: 3.0,
                       ),
                     ],
                   ),
                 PolylineLayer(
                   polylines: [
-                    Polyline(points: _digitizingPoints, color: Colors.green[800]!, strokeWidth: 3.0),
+                    Polyline(
+                      points: _digitizingPoints.length >= 3
+                          ? [..._digitizingPoints, _digitizingPoints.first]
+                          : _digitizingPoints,
+                      color: _mode == AppInteractionMode.gpsSurveyWalk ? Colors.cyan[900]! : Colors.green[800]!,
+                      strokeWidth: 3.0,
+                    ),
                   ],
                 ),
                 MarkerLayer(
                   markers: _digitizingPoints.asMap().entries.map((e) {
+                    final index = e.key;
+                    final isSel = _selectedVertexIndex == index;
                     return Marker(
                       point: e.value,
-                      width: 24,
-                      height: 24,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.green[800],
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                        child: Center(
-                          child: Text('${e.key + 1}',
-                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      width: 36,
+                      height: 36,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          setState(() => _selectedVertexIndex = index);
+                          _showToast('Đang chọn đỉnh #${index + 1}. Kéo để di chuyển hoặc bấm nút xóa');
+                        },
+                        onPanStart: (_) {
+                          setState(() => _selectedVertexIndex = index);
+                        },
+                        onPanUpdate: (details) {
+                          final curOffset = _mapController.camera.latLngToScreenOffset(_digitizingPoints[index]);
+                          final newOffset = curOffset + details.delta;
+                          final newLatLng = _mapController.camera.screenOffsetToLatLng(newOffset);
+                          setState(() {
+                            _digitizingPoints[index] = newLatLng;
+                          });
+                        },
+                        onPanEnd: (_) {
+                          _showToast('Đã di chuyển đỉnh #${index + 1} tới vị trí mới');
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isSel
+                                ? Colors.redAccent
+                                : (_mode == AppInteractionMode.gpsSurveyWalk
+                                    ? Colors.cyan[800]
+                                    : const Color(0xFF2E7D32)),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2.5),
+                            boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 2))],
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
                         ),
                       ),
                     );
@@ -3181,20 +3335,35 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 ),
               ],
 
-              // Lớp Đang Nắn Sửa Đỉnh (Hỗ trợ thêm/xóa nhiều đỉnh cực kỳ mượt mà)
+              // Lớp Đang Nắn Sửa Đỉnh (Hỗ trợ thêm/xóa & KÉO THẢ DI CHUYỂN ĐỈNH)
               if (_mode == AppInteractionMode.editVertex && _editingPlot != null) ...[
-                // Markers tại các đỉnh hiện tại
+                // Markers tại các đỉnh hiện tại (có thể chạm chọn hoặc Kéo thả trực tiếp)
                 MarkerLayer(
                   markers: _editingPlot!.boundary.asMap().entries.map((e) {
                     final isSel = _selectedVertexIndex == e.key;
                     return Marker(
                       point: e.value,
-                      width: 32,
-                      height: 32,
+                      width: 36,
+                      height: 36,
                       child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
                         onTap: () {
                           setState(() => _selectedVertexIndex = e.key);
-                          _showToast('Đang chọn đỉnh số ${e.key + 1}. Chạm điểm mới trên bản đồ để di chuyển.');
+                          _showToast('Đang chọn đỉnh số ${e.key + 1}. Bạn có thể kéo thả để di chuyển.');
+                        },
+                        onPanStart: (_) {
+                          setState(() => _selectedVertexIndex = e.key);
+                        },
+                        onPanUpdate: (details) {
+                          final curOffset = _mapController.camera.latLngToScreenOffset(_editingPlot!.boundary[e.key]);
+                          final newOffset = curOffset + details.delta;
+                          final newLatLng = _mapController.camera.screenOffsetToLatLng(newOffset);
+                          setState(() {
+                            _editingPlot!.boundary[e.key] = newLatLng;
+                          });
+                        },
+                        onPanEnd: (_) {
+                          _showToast('Đã di chuyển đỉnh số ${e.key + 1}');
                         },
                         child: Container(
                           decoration: BoxDecoration(
@@ -3438,8 +3607,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
             ),
           ),
 
-          // 3. THANH CÔNG CỤ SỐ HÓA
-          if (_mode == AppInteractionMode.digitizePlot)
+          // 3. THANH CÔNG CỤ SỐ HÓA & ĐO ĐẠC
+          if (_mode == AppInteractionMode.digitizePlot || _mode == AppInteractionMode.gpsSurveyWalk)
             Positioned(
               top: 130,
               left: 16,
@@ -3486,10 +3655,6 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     final lngDms = pos != null ? Vn2000Converter.toDMS(pos.longitude, false) : '';
     final accuracy = pos?.accuracy;
 
-    final now = DateTime.now();
-    final clockStr =
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
-
     return Container(
       margin: const EdgeInsets.fromLTRB(54, 4, 12, 4),
       decoration: BoxDecoration(
@@ -3532,13 +3697,23 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                             fontSize: 12.5,
                           ),
                         ),
-                        TextSpan(
-                          text: '($clockStr)',
-                          style: const TextStyle(
-                            color: Color(0xFF81D4FA),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
+                        WidgetSpan(
+                          alignment: PlaceholderAlignment.middle,
+                          child: ValueListenableBuilder<DateTime>(
+                            valueListenable: _clockNotifier,
+                            builder: (_, now, __) {
+                              final clockStr =
+                                  '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+                              return Text(
+                                '($clockStr)',
+                                style: const TextStyle(
+                                  color: Color(0xFF81D4FA),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                ),
+                              );
+                            },
                           ),
                         ),
                       ],
@@ -3830,67 +4005,247 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     );
   }
 
-  // THANH SỐ HÓA
+  void _showSurveyModeSelectionSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'CHỌN CHẾ ĐỘ ĐO ĐẠC & SỐ HÓA',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20)),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  tileColor: Colors.green.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFF2E7D32),
+                    child: Icon(Icons.directions_walk, color: Colors.white),
+                  ),
+                  title: const Text('1. Đo đạc theo GPS (Đi thực địa)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: const Text(
+                    'Cầm ĐT đi khoảng 5m máy tự thêm 1 điểm. Bấm kết thúc sẽ tự khép Polygon + tính diện tích, chu vi & tọa độ.',
+                    style: TextStyle(fontSize: 11, color: Colors.black87),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _mode = AppInteractionMode.gpsSurveyWalk;
+                      _digitizingPoints.clear();
+                      _selectedVertexIndex = null;
+                      _gpsWalkCurrentDist = 0.0;
+                      if (_currentGpsPosition != null) {
+                        _digitizingPoints.add(_currentGpsPosition!);
+                      }
+                    });
+                    _startLiveGpsStream();
+                    _showToast('Đã bật đo GPS: Cầm ĐT đi ~5m máy sẽ tự động ghim 1 điểm');
+                  },
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  tileColor: Colors.amber.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  leading: const CircleAvatar(
+                    backgroundColor: Colors.amber,
+                    child: Icon(Icons.touch_app, color: Colors.black87),
+                  ),
+                  title: const Text('2. Đo diện tích bấm điểm (Ngồi 1 chỗ)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: const Text(
+                    'Chạm các góc trên bản đồ để nối điểm. Cho phép chạm chọn đỉnh rồi KÉO di chuyển và buông tay để nắn.',
+                    style: TextStyle(fontSize: 11, color: Colors.black87),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _mode = AppInteractionMode.digitizePlot;
+                      _digitizingPoints.clear();
+                      _selectedVertexIndex = null;
+                    });
+                    _showToast('Chạm các góc trên bản đồ để vẽ Lô. Có thể kéo di chuyển đỉnh tùy ý');
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // THANH SỐ HÓA & ĐO ĐẠC
   Widget _buildDigitizingToolbar() {
     final areaHa = GisCalculator.calculateAreaInHectares(_digitizingPoints);
     final perimeterM = GisCalculator.calculateTotalDistanceInMeters(_digitizingPoints, isClosed: true);
+    final isGpsWalk = _mode == AppInteractionMode.gpsSurveyWalk;
 
     return Card(
-      color: const Color(0xF01B5E20),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: isGpsWalk ? const Color(0xF0004D40) : const Color(0xF01B5E20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 6,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.edit_location_alt, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text('ĐANG TẠO LÔ RỪNG MỚI', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    Icon(isGpsWalk ? Icons.directions_walk : Icons.touch_app, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      isGpsWalk ? 'ĐO ĐẠC GPS THỰC ĐỊA' : 'ĐO DIỆN TÍCH BẤM ĐIỂM',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
                   ],
                 ),
-                Text('Đã có: ${_digitizingPoints.length} đỉnh',
-                    style: const TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${_digitizingPoints.length} đỉnh',
+                    style: const TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
               ],
+            ),
+            const SizedBox(height: 6),
+            if (isGpsWalk)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'Cầm ĐT đi ~5m máy tự thêm điểm (Hiện tại: ${_gpsWalkCurrentDist.toStringAsFixed(1)} / 5.0m)',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11, fontStyle: FontStyle.italic),
+                ),
+              )
+            else
+              const Padding(
+                padding: EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'Chạm bản đồ thêm điểm · Chạm và KÉO đỉnh để di chuyển · Buông tay để đặt lại',
+                  style: TextStyle(color: Colors.white70, fontSize: 11, fontStyle: FontStyle.italic),
+                ),
+              ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Diện tích: ${areaHa.toStringAsFixed(2)} ha (${(areaHa * 10000).toStringAsFixed(0)} m²)',
+                      style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text('Chu vi: ${perimeterM.toStringAsFixed(1)} m',
+                      style: const TextStyle(color: Colors.white, fontSize: 12)),
+                ],
+              ),
             ),
             const SizedBox(height: 8),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Diện tích: ${areaHa.toStringAsFixed(2)} ha',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                Text('Chu vi: ${perimeterM.toStringAsFixed(1)} m',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
-                    onPressed: _captureGpsForDigitizing,
-                    icon: const Icon(Icons.gps_fixed, size: 16),
-                    label: const Text('Ghim đỉnh GPS'),
+                if (!isGpsWalk) ...[
+                  if (_selectedVertexIndex != null)
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_selectedVertexIndex! < _digitizingPoints.length) {
+                              _digitizingPoints.removeAt(_selectedVertexIndex!);
+                              _selectedVertexIndex = null;
+                            }
+                          });
+                          _showToast('Đã xóa đỉnh đã chọn');
+                        },
+                        icon: const Icon(Icons.delete, size: 16),
+                        label: Text('Xóa đỉnh #${_selectedVertexIndex! + 1}', style: const TextStyle(fontSize: 11)),
+                      ),
+                    )
+                  else if (_digitizingPoints.isNotEmpty)
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white54),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        onPressed: () {
+                          setState(() => _digitizingPoints.removeLast());
+                          _showToast('Đã hoàn tác điểm gần nhất');
+                        },
+                        icon: const Icon(Icons.undo, size: 16),
+                        label: const Text('Hoàn tác', style: TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                  const SizedBox(width: 6),
+                ] else ...[
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      onPressed: _captureGpsForDigitizing,
+                      icon: const Icon(Icons.gps_fixed, size: 16),
+                      label: const Text('Ghim điểm ngay', style: TextStyle(fontSize: 11)),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
+                  const SizedBox(width: 6),
+                ],
                 Expanded(
+                  flex: 2,
                   child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFF1B5E20)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: isGpsWalk ? const Color(0xFF004D40) : const Color(0xFF1B5E20),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
                     onPressed: _openSavePlotDialog,
-                    icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Hoàn tất lưu'),
+                    icon: const Icon(Icons.check_circle, size: 16, color: Color(0xFF2E7D32)),
+                    label: const Text('Kết thúc & Lưu Lô', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
+                  tooltip: 'Hủy đo đạc',
+                  icon: const Icon(Icons.close, color: Colors.white70),
                   onPressed: () => setState(() {
                     _digitizingPoints.clear();
+                    _selectedVertexIndex = null;
                     _mode = AppInteractionMode.normal;
                   }),
                 ),
@@ -4100,25 +4455,33 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         ),
         const SizedBox(height: 8),
 
-        // Nút Tạo Lô Rừng Mới
+        // Nút Đo đạc & Tạo Lô (Đo GPS thực địa hoặc Bấm điểm)
         FloatingActionButton.small(
           heroTag: 'add_plot_btn',
-          backgroundColor: _mode == AppInteractionMode.digitizePlot ? Colors.amber : Colors.white,
+          backgroundColor: _mode == AppInteractionMode.gpsSurveyWalk
+              ? Colors.cyanAccent
+              : _mode == AppInteractionMode.digitizePlot
+                  ? Colors.amber
+                  : Colors.white,
           foregroundColor: Colors.black87,
-          tooltip: 'Tạo Lô rừng mới',
+          tooltip: _mode != AppInteractionMode.normal ? 'Đang đo đạc (Bấm để hủy)' : 'Đo đạc & Tạo Lô',
           onPressed: () {
-            setState(() {
-              if (_mode == AppInteractionMode.digitizePlot) {
+            if (_mode == AppInteractionMode.gpsSurveyWalk || _mode == AppInteractionMode.digitizePlot) {
+              setState(() {
                 _mode = AppInteractionMode.normal;
                 _digitizingPoints.clear();
-              } else {
-                _mode = AppInteractionMode.digitizePlot;
-                _digitizingPoints.clear();
-                _showToast('Chạm các góc trên bản đồ hoặc bấm Ghim GPS để tạo Lô');
-              }
-            });
+                _selectedVertexIndex = null;
+              });
+              _showToast('Đã dừng chế độ đo đạc');
+            } else {
+              _showSurveyModeSelectionSheet();
+            }
           },
-          child: const Icon(Icons.add_location_alt),
+          child: Icon(_mode == AppInteractionMode.gpsSurveyWalk
+              ? Icons.directions_walk
+              : _mode == AppInteractionMode.digitizePlot
+                  ? Icons.touch_app
+                  : Icons.straighten),
         ),
         const SizedBox(height: 8),
 
@@ -4378,7 +4741,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                                       _savePersistentData();
                                                       setState(() {});
                                                       setSheetState(() {});
-                                                      _showToast('Đã di chuyển "$gName" lên vị trí #${index}');
+                                                      _showToast('Đã di chuyển "$gName" lên vị trí #$index');
                                                     }
                                                   : null,
                                               child: Padding(
