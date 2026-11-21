@@ -161,31 +161,25 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     // Logo & App Name
                     Container(
-                      width: 80,
-                      height: 80,
+                      width: 90,
+                      height: 90,
                       decoration: BoxDecoration(
-                        color: Colors.white,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 16,
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 18,
                             offset: const Offset(0, 8),
                           ),
                         ],
                       ),
-                      child: ClipOval(
-                        child: Padding(
-                          padding: const EdgeInsets.all(6.0),
-                          child: Image.asset(
-                            'assets/icon_app.png',
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const Icon(
-                              Icons.forest,
-                              size: 46,
-                              color: Color(0xFF1B5E20),
-                            ),
-                          ),
+                      child: Image.asset(
+                        'assets/icon_app.png',
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.forest,
+                          size: 50,
+                          color: Colors.white,
                         ),
                       ),
                     ),
