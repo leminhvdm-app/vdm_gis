@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/user_profile.dart';
 import '../services/user_session_tracker.dart';
 import 'map_screen.dart';
@@ -17,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _unitController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
+  DateTime? _lastBackPressTime;
 
   @override
   void initState() {
@@ -95,8 +97,46 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final safePadding = MediaQuery.of(context).padding;
 
-    return Scaffold(
-      body: Container(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+
+        // Nếu mở ở chế độ chỉnh sửa thông tin từ bản đồ, bấm back chỉ đóng dialog trở về bản đồ
+        if (widget.isEditing) {
+          Navigator.pop(context, false);
+          return;
+        }
+
+        // Bấm back 2 lần để thoát ứng dụng
+        final now = DateTime.now();
+        if (_lastBackPressTime == null || now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).removeCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Nhấn nút quay lại lần nữa để thoát ứng dụng',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: Colors.black87,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              margin: EdgeInsets.only(
+                bottom: safePadding.bottom + 16,
+                left: 32,
+                right: 32,
+              ),
+            ),
+          );
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: Container(
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(
@@ -456,6 +496,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

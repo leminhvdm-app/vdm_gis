@@ -3238,10 +3238,40 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         : (MediaQuery.of(context).padding.bottom > 0 ? MediaQuery.of(context).padding.bottom : 56.0);
     final bottomOffset = sysBottom + 48.0;
 
-    return Scaffold(
-      extendBody: true,
-      extendBodyBehindAppBar: true,
-      body: Stack(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+
+        // 1. Nếu đang ở các chế độ đo đạc / chỉnh sửa / số hóa, bấm back sẽ hủy chế độ
+        if (_mode != AppInteractionMode.normal) {
+          setState(() {
+            _mode = AppInteractionMode.normal;
+            _editingPlot = null;
+            _digitizingPoints.clear();
+            _selectedVertexIndex = null;
+            _isAddingVertexMode = false;
+          });
+          _showToast('Đã thoát chế độ đo đạc / chỉnh sửa');
+          return;
+        }
+
+        // 2. Nếu đang chọn một Lô hoặc POI, bấm back sẽ bỏ chọn trước
+        if (_selectedPlot != null) {
+          setState(() => _selectedPlot = null);
+          return;
+        }
+
+        // 3. Trở về màn hình đăng nhập theo yêu cầu
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      },
+      child: Scaffold(
+        extendBody: true,
+        extendBodyBehindAppBar: true,
+        body: Stack(
         children: [
           // 1. BẢN ĐỒ GIS TRÀN VIỀN FULL MÀN HÌNH
           FlutterMap(
@@ -3731,8 +3761,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   // HUD GPS
   Widget _buildGpsHud() {
