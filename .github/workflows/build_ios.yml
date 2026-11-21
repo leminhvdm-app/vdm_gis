@@ -20,12 +20,10 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install Dependencies
-        run: |
-          flutter pub get
-          cd ios && pod install && cd ..
+      - name: Install Flutter Dependencies
+        run: flutter pub get
 
-      - name: Build iOS (Unsigned IPA)
+      - name: Build iOS Application
         run: |
           flutter build ios --release --no-codesign
           cd build/ios/iphoneos
@@ -36,5 +34,5 @@ jobs:
       - name: Upload iOS IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VDM_GIS_iOS.ipa
+          name: VDM_GIS_iOS
           path: build/ios/iphoneos/VDM_GIS_iOS.ipa
