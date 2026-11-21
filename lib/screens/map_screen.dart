@@ -5167,32 +5167,55 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   String _formatAttributeKey(String key) {
-    switch (key.toLowerCase()) {
+    final clean = key.toLowerCase().trim();
+    switch (clean) {
       case 'id_lo':
+      case 'idlo':
         return 'Mã định danh Lô';
+      case 'id_lo_2_cap':
+      case 'idlo2cap':
+        return 'Mã Lô (2 cấp)';
       case 'cty':
+      case 'cong_ty':
         return 'Công ty quản lý';
       case 'ntruong':
+      case 'nong_truong':
         return 'Nông trường';
+      case 'ten_doi':
+        return 'Tên Đội sản xuất';
+      case 'don_vi':
+        return 'Đơn vị / Đội';
+      case 'du_an':
+        return 'Dự án';
       case 'tenlo':
+      case 'ten_lo':
+      case 'so_lo':
         return 'Số hiệu Lô';
       case 'hdat':
+      case 'hang_dat':
         return 'Hạng đất';
+      case 'cao_trinh':
+        return 'Cao trình (m)';
       case 'pp_trồng':
       case 'pp_trong':
+      case 'phuong_phap_trong':
         return 'Phương pháp trồng';
       case 'khoảng_c':
       case 'khoang_c':
+      case 'khoang_cach_trong':
         return 'Khoảng cách cây';
       case 'giong':
+      case 'giong_cay':
         return 'Giống cây';
       case 'năm_cạo':
       case 'nam_cao':
+      case 'nam_mo_cao':
         return 'Năm mở cạo';
       case 'chế_đ':
       case 'che_d':
         return 'Chế độ cạo';
       case 'namtrong':
+      case 'nam_trong':
         return 'Năm trồng';
       case 'ct_tb':
         return 'Vòng thân TB (cm)';
@@ -5200,9 +5223,23 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       case 'mat_d':
       case 'mật_đ_1':
       case 'mat_d_1':
+      case 'mat_do':
         return 'Mật độ (cây/ha)';
+      case 'mat_do_cay_cao':
+        return 'Mật độ cây cạo (cây/ha)';
+      case 'cay_cao_hh':
+        return 'Cây cạo hiện hữu';
+      case 'tuoi_cao_2025':
+        return 'Tuổi cạo';
+      case 'tt_mat_cao_2025':
+        return 'TT mặt cạo';
+      case 'nang_suat_2025':
+        return 'Năng suất';
+      case 'xep_hang_2025':
+        return 'Xếp hạng';
       case 'hiện_tr':
       case 'hien_tr':
+      case 'hien_trang':
         return 'Hiện trạng';
       case 'phân_lo':
       case 'phan_lo':
@@ -5213,7 +5250,13 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       case 'dien_tich1':
       case 'dien_tich':
       case 'dien_tic_1':
+      case 'dt':
         return 'Diện tích hồ sơ (ha)';
+      case 'fid':
+        return 'Mã FID';
+      case 'ghi_chu':
+      case 'note':
+        return 'Ghi chú';
       case 'shape_area':
       case 'shape__are':
         return 'Diện tích (m²)';

@@ -52,20 +52,35 @@ class KmlParser {
     final Map<String, String> result = {};
     if (html.isEmpty) return result;
 
-    // Chuẩn hóa <BR>, <br>, <br/> thành xuống dòng
-    String text = html.replaceAll(RegExp(r'<[bB][rR]\s*/?>'), '\n');
-
-    // Tìm các cặp <B>Tên_Trường</B> = Giá_Trị hoặc <B>Tên_Trường:</B> Giá_Trị
-    final regex = RegExp(r'<[bB]>([^<]+)<\/[bB]>\s*[:=]\s*([^<\n\r]+)');
-    for (var m in regex.allMatches(text)) {
-      final key = m.group(1)!.trim();
-      final val = m.group(2)!.trim();
-      if (key.isNotEmpty && val.isNotEmpty) {
+    // 1. Quét cấu trúc bảng HTML: <table> <tr> <td>Tên trường</td> <td>Giá trị</td> </tr>
+    // Rất phổ biến khi xuất từ QGIS, ArcGIS, MapInfo (như file Mi_2026_All, CaoSu_GuiTD...)
+    final tableRowRegex = RegExp(
+      r'<tr[^>]*>\s*<t[dh][^>]*>(.*?)<\/t[dh]>\s*<t[dh][^>]*>(.*?)<\/t[dh]>\s*<\/tr>',
+      caseSensitive: false,
+      dotAll: true,
+    );
+    for (var m in tableRowRegex.allMatches(html)) {
+      final key = m.group(1)!.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+      final val = m.group(2)!.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+      if (key.isNotEmpty && val.isNotEmpty && !result.containsKey(key)) {
         result[key] = val;
       }
     }
 
-    // Quét thêm dạng thông thường Tên_Trường = Giá_Trị hoặc Tên_Trường: Giá_Trị
+    // Chuẩn hóa <BR>, <br>, <br/> thành xuống dòng
+    String text = html.replaceAll(RegExp(r'<[bB][rR]\s*/?>'), '\n');
+
+    // 2. Tìm các cặp <B>Tên_Trường</B> = Giá_Trị hoặc <B>Tên_Trường:</B> Giá_Trị (như file Kratie)
+    final regex = RegExp(r'<[bB]>([^<]+)<\/[bB]>\s*[:=]\s*([^<\n\r]+)');
+    for (var m in regex.allMatches(text)) {
+      final key = m.group(1)!.trim();
+      final val = m.group(2)!.trim();
+      if (key.isNotEmpty && val.isNotEmpty && !result.containsKey(key)) {
+        result[key] = val;
+      }
+    }
+
+    // 3. Quét thêm dạng thông thường Tên_Trường = Giá_Trị hoặc Tên_Trường: Giá_Trị
     final lines = text.split(RegExp(r'[\r\n]+'));
     for (var line in lines) {
       final cleanLine = line.replaceAll(RegExp(r'<[^>]*>'), '').trim();
@@ -123,37 +138,69 @@ class KmlParser {
               attrs[attrName] = val;
             }
           }
+          // Quét SchemaData -> SimpleData (chuẩn xuất từ QGIS / ArcGIS / GDAL)
+          for (var schemaData in extendedData.findElements('SchemaData')) {
+            for (var simpleData in schemaData.findElements('SimpleData')) {
+              final attrName = simpleData.getAttribute('name') ?? '';
+              final val = simpleData.innerText.trim();
+              if (attrName.isNotEmpty && val.isNotEmpty && !attrs.containsKey(attrName)) {
+                attrs[attrName] = val;
+              }
+            }
+          }
+          for (var simpleData in extendedData.findElements('SimpleData')) {
+            final attrName = simpleData.getAttribute('name') ?? '';
+            final val = simpleData.innerText.trim();
+            if (attrName.isNotEmpty && val.isNotEmpty && !attrs.containsKey(attrName)) {
+              attrs[attrName] = val;
+            }
+          }
         }
 
-        // Tách các trường thông tin chuẩn từ thuộc tính (ví dụ file Kratie)
-        final plotName = attrs['tenlo'] ?? (attrs['ID_lo'] ?? rawName);
-        final khoanhName = attrs['ntruong'] ?? (attrs['khoanh'] ?? 'K1');
-        final tieuKhuName = attrs['tieu_khu'] ?? (attrs['tieukhu'] ?? (attrs['cTy'] ?? 'KMZ'));
-        final chuRungName = attrs['cTy'] ?? (attrs['chu_rung'] ?? 'Nhập từ KMZ/KML');
+        // Helper tìm giá trị thuộc tính linh hoạt (không phân biệt hoa/thường hay gạch dưới)
+        String? getVal(List<String> candidateKeys) {
+          for (final k in candidateKeys) {
+            final target = k.toLowerCase().replaceAll(RegExp(r'[\s_\-]+'), '');
+            for (final entry in attrs.entries) {
+              final current = entry.key.toLowerCase().replaceAll(RegExp(r'[\s_\-]+'), '');
+              if (current == target && entry.value.trim().isNotEmpty) {
+                return entry.value.trim();
+              }
+            }
+          }
+          return null;
+        }
 
-        String loaiCay = attrs['loai_cay'] ?? 'Theo hồ sơ KMZ';
-        if (attrs.containsKey('giong')) {
-          loaiCay = 'Cao su giống ${attrs['giong']}';
+        // Tách các trường thông tin chuẩn từ thuộc tính (hỗ trợ cả dạng bảng và dạng cặp Key = Value)
+        final plotName = getVal(['ten_lo', 'tenlo', 'id_lo', 'idlo', 'lo', 'so_hieu_lo', 'solo']) ?? rawName;
+        final khoanhName = getVal(['ntruong', 'nong_truong', 'ten_doi', 'tendoi', 'don_vi', 'donvi', 'khoanh', 'doi']) ?? 'K1';
+        final tieuKhuName = getVal(['tieu_khu', 'tieukhu', 'cTy', 'cty', 'cong_ty', 'du_an', 'duan']) ?? 'KMZ';
+        final chuRungName = getVal(['cTy', 'cty', 'cong_ty', 'chu_rung', 'churung', 'don_vi']) ?? 'Nhập từ KMZ/KML';
+
+        String loaiCay = 'Theo hồ sơ KMZ';
+        final giong = getVal(['giong', 'giong_cay', 'loai_cay', 'loaicay']);
+        if (giong != null) {
+          loaiCay = giong.toLowerCase().startsWith('cao su') ? giong : 'Cao su giống $giong';
         }
 
         int? namTrong;
-        if (attrs.containsKey('namtrong')) {
-          namTrong = double.tryParse(attrs['namtrong']!)?.toInt();
-        } else if (attrs.containsKey('nam_trong')) {
-          namTrong = int.tryParse(attrs['nam_trong']!);
+        final rawNam = getVal(['nam_trong', 'namtrong']);
+        if (rawNam != null) {
+          namTrong = double.tryParse(rawNam)?.toInt();
         }
 
         String trangThai = 'Rừng quy hoạch KMZ';
-        if (attrs.containsKey('Hiện_tr')) {
-          final ht = attrs['Hiện_tr']!;
+        final ht = getVal(['Hiện_tr', 'hien_tr', 'hiện_trạng', 'hien_trang', 'trang_thai', 'trạng_thái', 'tt_mat_cao_2025']);
+        if (ht != null) {
           trangThai = (ht == 'CS.KD') ? 'Cao su kinh doanh (CS.KD)' : ht;
-        } else if (attrs.containsKey('trang_thai')) {
-          trangThai = attrs['trang_thai']!;
         }
 
-        // Tạo ghi chú sạch (không chứa thẻ HTML rác)
+        // Tạo ghi chú sạch
         String cleanNote;
-        if (attrs.isNotEmpty) {
+        final specificNote = getVal(['ghi_chu', 'note', 'ghi_chu_lo']);
+        if (specificNote != null && specificNote.isNotEmpty) {
+          cleanNote = specificNote;
+        } else if (attrs.isNotEmpty) {
           cleanNote = attrs.entries.map((e) => '${e.key}: ${e.value}').join(' | ');
         } else {
           cleanNote = rawDesc.replaceAll(RegExp(r'<[^>]*>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -170,8 +217,9 @@ class KmlParser {
             if (points.length >= 3) {
               final areaHa = GisCalculator.calculateAreaInHectares(points);
               double plotArea = double.parse(areaHa.toStringAsFixed(2));
-              if (attrs.containsKey('Dien_tich1')) {
-                final a = double.tryParse(attrs['Dien_tich1']!);
+              final rawDt = getVal(['dien_tich1', 'dien_tich', 'dt', 'dientich', 'area']);
+              if (rawDt != null) {
+                final a = double.tryParse(rawDt);
                 if (a != null && a > 0) plotArea = double.parse(a.toStringAsFixed(2));
               }
 
