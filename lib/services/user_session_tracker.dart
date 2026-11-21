@@ -283,48 +283,30 @@ class UserSessionTracker {
         authQuery = '?auth=${syncService.config.secret.trim()}';
       }
 
-      // 1. Lưu phiên riêng biệt: /thong_tin_su_dung_app/{userKey}/{currentSessionKey}.json
-      // Và /vdm_gis/thong_tin_su_dung_app/{userKey}/{currentSessionKey}.json
-      final sessionEndpoints = [
-        '$baseUrl/thong_tin_su_dung_app/$userKey/$_currentSessionKey.json$authQuery',
-        '$baseUrl/vdm_gis/thong_tin_su_dung_app/$userKey/$_currentSessionKey.json$authQuery',
-      ];
+      // Đẩy dữ liệu chuẩn hóa về 1 node duy nhất trên Firebase: /vdm_gis/...
+      // 1. Lưu phiên riêng biệt
+      final sessionUrl = '$baseUrl/vdm_gis/thong_tin_su_dung_app/$userKey/$_currentSessionKey.json$authQuery';
+      http.put(
+        Uri.parse(sessionUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(sessionPayload),
+      ).timeout(const Duration(seconds: 6)).catchError((_) => http.Response('', 500));
 
-      for (var ep in sessionEndpoints) {
-        http.put(
-          Uri.parse(ep),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(sessionPayload),
-        ).timeout(const Duration(seconds: 6)).catchError((_) => http.Response('', 500));
-      }
+      // 2. Cập nhật node Tổng quan
+      final summaryUrl = '$baseUrl/vdm_gis/thong_tin_su_dung_app/$userKey/Tong_Quan.json$authQuery';
+      http.put(
+        Uri.parse(summaryUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(summaryPayload),
+      ).timeout(const Duration(seconds: 6)).catchError((_) => http.Response('', 500));
 
-      // 2. Cập nhật node Tổng quan: /thong_tin_su_dung_app/{userKey}/Tong_Quan.json
-      final summaryEndpoints = [
-        '$baseUrl/thong_tin_su_dung_app/$userKey/Tong_Quan.json$authQuery',
-        '$baseUrl/vdm_gis/thong_tin_su_dung_app/$userKey/Tong_Quan.json$authQuery',
-      ];
-
-      for (var ep in summaryEndpoints) {
-        http.put(
-          Uri.parse(ep),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(summaryPayload),
-        ).timeout(const Duration(seconds: 6)).catchError((_) => http.Response('', 500));
-      }
-
-      // 3. Cập nhật node Nhận diện thiết bị cài đặt app: /thiet_bi_cai_dat/{userKey}.json
-      final deviceEndpoints = [
-        '$baseUrl/thiet_bi_cai_dat/$userKey.json$authQuery',
-        '$baseUrl/vdm_gis/thiet_bi_cai_dat/$userKey.json$authQuery',
-      ];
-
-      for (var ep in deviceEndpoints) {
-        http.put(
-          Uri.parse(ep),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(devicePayload),
-        ).timeout(const Duration(seconds: 6)).catchError((_) => http.Response('', 500));
-      }
+      // 3. Cập nhật node Nhận diện thiết bị cài đặt app
+      final deviceUrl = '$baseUrl/vdm_gis/thiet_bi_cai_dat/$userKey.json$authQuery';
+      http.put(
+        Uri.parse(deviceUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(devicePayload),
+      ).timeout(const Duration(seconds: 6)).catchError((_) => http.Response('', 500));
     } catch (e) {
       debugPrint('Lỗi đẩy session lên Firebase: $e');
     }
