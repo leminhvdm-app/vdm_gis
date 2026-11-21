@@ -1052,6 +1052,28 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(height: 18),
+              // Thông tin ứng dụng
+              Center(
+                child: Column(
+                  children: const [
+                    Text(
+                      'Phiên bản: 1.0.1',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Nhà phát triển: Lê Minh',
+                      style: TextStyle(fontSize: 11, color: Colors.black45),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Liên hệ: leminh.vdm@gmail.com',
+                      style: TextStyle(fontSize: 11, color: Colors.black45),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
             ],
           ),
         ),
