@@ -1786,6 +1786,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               p.color = newColor;
             }
           }
+          _invalidatePlotCache();
         });
         _savePersistentData();
         onDone?.call();
@@ -4718,7 +4719,11 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                       TextButton(
                                         style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
                                         onPressed: () {
-                                          setState(() => _hiddenGroups.clear());
+                                          setState(() {
+                                            _hiddenGroups.clear();
+                                            _invalidatePlotCache();
+                                          });
+                                          _savePersistentData();
                                           setSheetState(() {});
                                           _showToast('Đã hiện tất cả các nhóm dữ liệu');
                                         },
@@ -4728,7 +4733,11 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                       TextButton(
                                         style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
                                         onPressed: () {
-                                          setState(() => _hiddenGroups.addAll(allGroupNames));
+                                          setState(() {
+                                            _hiddenGroups.addAll(allGroupNames);
+                                            _invalidatePlotCache();
+                                          });
+                                          _savePersistentData();
                                           setSheetState(() {});
                                           _showToast('Đã ẩn tất cả các nhóm dữ liệu');
                                         },
@@ -4760,7 +4769,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 if (plotsInGroup.isNotEmpty && poisInGroup.isNotEmpty) {
                                   groupSub = '${plotsInGroup.length} Lô • ${totalHa.toStringAsFixed(1)} ha • ${poisInGroup.length} Mốc';
                                 } else if (plotsInGroup.isNotEmpty) {
-                                  groupSub = '${plotsInGroup.length} Lô • ${totalHa.toStringAsFixed(1)} ha';
+                                  groupSub = ' Lô •  ha';
                                 } else {
                                   groupSub = '${poisInGroup.length} Điểm mốc ranh giới';
                                 }
@@ -4933,7 +4942,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                             } else {
                                               _hiddenGroups.add(gName);
                                             }
+                                            _invalidatePlotCache();
                                           });
+                                          _savePersistentData();
                                           setSheetState(() {});
                                           _showToast(isHidden ? 'Đã hiển thị nhóm "$gName"' : 'Đã ẩn nhóm "$gName" khỏi bản đồ');
                                         },
@@ -5001,13 +5012,21 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                           Navigator.pop(ctx);
                                           if (plotsInGroup.isNotEmpty) {
                                             if (isHidden) {
-                                              setState(() => _hiddenGroups.remove(gName));
+                                              setState(() {
+                                                _hiddenGroups.remove(gName);
+                                                _invalidatePlotCache();
+                                              });
+                                              _savePersistentData();
                                             }
                                             _mapController.move(plotsInGroup.first.center, 15.0);
                                             _showToast('Đã di chuyển tới nhóm "$gName"');
                                           } else if (poisInGroup.isNotEmpty) {
                                             if (isHidden) {
-                                              setState(() => _hiddenGroups.remove(gName));
+                                              setState(() {
+                                                _hiddenGroups.remove(gName);
+                                                _invalidatePlotCache();
+                                              });
+                                              _savePersistentData();
                                             }
                                             _mapController.move(poisInGroup.first.position, 15.0);
                                             _showToast('Đã di chuyển tới nhóm "$gName"');
@@ -5040,6 +5059,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                                       _poiList.removeWhere((p) => p.groupName == gName);
                                                       _hiddenGroups.remove(gName);
                                                       _datasetGroupOrder.remove(gName);
+                                                      _invalidatePlotCache();
                                                     });
                                                     _savePersistentData();
                                                     Navigator.pop(delCtx);
