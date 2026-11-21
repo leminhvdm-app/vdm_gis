@@ -109,4 +109,31 @@ void main() {
       expect(p.lo, isNot('Lô KML 1'));
     }
   });
+
+  test('Trích xuất thuộc tính từ chuỗi ghi chú thô của Hình 2 (CaoSu_GuiTD)', () {
+    const rawNote = 'fid 260 TEN_LO 283 ID_LO_2_CAP 5.08NK.D2.10.044 DU_AN 2 DON_VI DOI 2 NAM_TRONG 2010 HANG_DAT TM-III CAO_TRINH 147.5 PHUONG_PHAP_TRONG TB3 KHOANG_CACH_TRONG 6x3 MAT_DO 555 GIONG PB 260 DIEN_TICH 17.01 CAY_CAO_HH 7354 MAT_DO_CAY_CAO 432 NAM_MO_CAO 2017 TUOI_CAO_2025 9 TT_MAT_CAO_2025 BO-2.4 NANG_SUAT_2025 1778 XEP_HANG_2025 Q1';
+    
+    final attrs = KmlParser.extractAttributesFromRawNote(rawNote);
+    expect(attrs['fid'], equals('260'));
+    expect(attrs['TEN_LO'], equals('283'));
+    expect(attrs['ID_LO_2_CAP'], equals('5.08NK.D2.10.044'));
+    expect(attrs['DU_AN'], equals('2'));
+    expect(attrs['DON_VI'], equals('DOI 2'));
+    expect(attrs['NAM_TRONG'], equals('2010'));
+    expect(attrs['HANG_DAT'], equals('TM-III'));
+    expect(attrs['CAO_TRINH'], equals('147.5'));
+    expect(attrs['PHUONG_PHAP_TRONG'], equals('TB3'));
+    expect(attrs['KHOANG_CACH_TRONG'], equals('6x3'));
+    expect(attrs['MAT_DO'], equals('555'));
+    expect(attrs['GIONG'], equals('PB 260'));
+    expect(attrs['DIEN_TICH'], equals('17.01'));
+    expect(attrs['CAY_CAO_HH'], equals('7354'));
+    expect(attrs['MAT_DO_CAY_CAO'], equals('432'));
+    expect(attrs['NAM_MO_CAO'], equals('2017'));
+    expect(attrs['TUOI_CAO_2025'], equals('9'));
+    expect(attrs['TT_MAT_CAO_2025'], equals('BO-2.4'));
+    expect(attrs['NANG_SUAT_2025'], equals('1778'));
+    expect(attrs['XEP_HANG_2025'], equals('Q1'));
+    expect(attrs.length, equals(20));
+  });
 }

@@ -5268,6 +5268,38 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Thứ tự ưu tiên sắp xếp thuộc tính hồ sơ chuẩn lâm nghiệp / cao su từ trên xuống dưới (chuẩn theo Hình 1)
+  int _getAttributeRank(String rawKey) {
+    final k = rawKey.toLowerCase().replaceAll(RegExp(r'[\s_\-]+'), '');
+    if (k == 'idlo' || k == 'idlo2cap' || k == 'malo') return 10;
+    if (k == 'cty' || k == 'congty' || k == 'duan') return 20;
+    if (k == 'ntruong' || k == 'nongtruong' || k == 'tendoi' || k == 'donvi' || k == 'doi' || k == 'khoanh') return 30;
+    if (k == 'tenlo' || k == 'solo' || k == 'lo') return 40;
+    if (k == 'hdat' || k == 'hangdat') return 50;
+    if (k == 'pptrồng' || k == 'pptrong' || k == 'phuongphaptrong') return 60;
+    if (k == 'khoảngc' || k == 'khoangc' || k == 'khoangcachtrong') return 70;
+    if (k == 'giong' || k == 'giongcay' || k == 'loaicay') return 80;
+    if (k == 'chếđ' || k == 'ched' || k == 'chedocao') return 90;
+    if (k == 'namtrong') return 100;
+    if (k == 'cttb' || k == 'caotrinh' || k == 'vongthan') return 110;
+    if (k == 'mậtđ' || k == 'matd' || k == 'matdo') return 120;
+    if (k == 'dientich_') return 130;
+    if (k == 'hiệntr' || k == 'hientr' || k == 'ttmatcao2025' || k == 'ttmatcao' || k == 'hientrang' || k == 'trangthai') return 140;
+    if (k == 'phânlo' || k == 'phanlo' || k == 'xephang2025' || k == 'xephang') return 150;
+    if (k == 'nămcạo' || k == 'namcao' || k == 'nămmở' || k == 'nammo' || k == 'nammo_' || k == 'nammocao') return 160;
+    if (k == 'tuoicao2025' || k == 'tuoicao') return 170;
+    if (k == 'mậtđ1' || k == 'matd1' || k == 'matdocaycao') return 180;
+    if (k == 'caycaohh' || k == 'caycao') return 190;
+    if (k == 'nangsuat2025' || k == 'nangsuat') return 200;
+    if (k == 'htvườn' || k == 'htvuon') return 210;
+    if (k == 'namchuyen') return 220;
+    if (k == 'chuvi' || k == 'shapeleng' || k == 'shapelen') return 230;
+    if (k == 'dientich1' || k == 'dt' || k == 'dientich') return 240;
+    if (k == 'fid') return 250;
+    if (k == 'ghichu' || k == 'note') return 260;
+    return 300;
+  }
+
   // BẢNG CHI TIẾT LÔ RỪNG
   void _showPlotDetailSheet(ForestPlot plot) {
     showModalBottomSheet(
@@ -5282,6 +5314,68 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         final safeBottom = bottomInset + 24.0;
         final cleanTrangThai = plot.trangThaiRung.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
         final cleanNote = plot.note.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
+
+        // 1. Lấy danh sách thuộc tính (từ attributes hoặc trích xuất tự động từ note nếu trước đó note bị dồn chuỗi phẳng)
+        Map<String, String> effectiveAttributes = Map<String, String>.from(plot.attributes);
+        if (effectiveAttributes.isEmpty && cleanNote.isNotEmpty) {
+          effectiveAttributes = KmlParser.extractAttributesFromRawNote(cleanNote);
+        }
+
+        // 2. Sắp xếp thuộc tính BẮT BUỘC theo đúng thứ tự logic từ trên xuống dưới như Hình 1
+        final sortedEntries = effectiveAttributes.entries.toList()
+          ..sort((a, b) {
+            final rankA = _getAttributeRank(a.key);
+            final rankB = _getAttributeRank(b.key);
+            if (rankA != rankB) return rankA.compareTo(rankB);
+            return a.key.compareTo(b.key);
+          });
+
+        // 3. Suy luận thông minh các trường hiển thị tiêu đề nếu trước đó đang ở giá trị mặc định
+        String displayTitle = plot.fullName;
+        final candidateTenLo = effectiveAttributes['TEN_LO'] ?? effectiveAttributes['tenlo'];
+        final candidateDonVi = effectiveAttributes['DON_VI'] ?? effectiveAttributes['ntruong'] ?? effectiveAttributes['TEN_DOI'];
+        final candidateCTy = effectiveAttributes['cTy'] ?? (effectiveAttributes.containsKey('ID_LO_2_CAP') ? '08Đồng Nai Kratie' : null);
+
+        if (candidateTenLo != null && (plot.fullName.startsWith('KMZ -') || plot.fullName.startsWith('Lô '))) {
+          if (candidateCTy != null && candidateDonVi != null) {
+            displayTitle = '$candidateCTy - $candidateDonVi - $candidateTenLo';
+          } else if (candidateDonVi != null) {
+            displayTitle = '$candidateDonVi - $candidateTenLo';
+          } else {
+            displayTitle = 'Lô $candidateTenLo';
+          }
+        }
+
+        String displayChuRung = plot.chuRung;
+        if (displayChuRung == 'Nhập từ KMZ/KML' && candidateCTy != null) {
+          displayChuRung = candidateCTy;
+        }
+
+        String displayTrangThai = cleanTrangThai;
+        final rawHt = effectiveAttributes['Hiện_tr'] ?? effectiveAttributes['TT_MAT_CAO_2025'];
+        if (displayTrangThai.isEmpty || displayTrangThai == 'Rừng quy hoạch KMZ' || displayTrangThai == 'Rừng quy hoạch') {
+          if (rawHt != null) {
+            displayTrangThai = (rawHt == 'CS.KD' || rawHt.startsWith('BO-'))
+                ? 'Cao su kinh doanh ($rawHt)'
+                : rawHt;
+          }
+        }
+
+        String displayLoaiCay = plot.loaiCay;
+        final rawGiong = effectiveAttributes['GIONG'] ?? effectiveAttributes['giong'];
+        if (displayLoaiCay == 'Theo hồ sơ KMZ' && rawGiong != null) {
+          displayLoaiCay = rawGiong.toLowerCase().startsWith('cao su') ? rawGiong : 'Cao su giống $rawGiong';
+        }
+
+        int? displayNamTrong = plot.namTrong;
+        final rawNamTrong = effectiveAttributes['NAM_TRONG'] ?? effectiveAttributes['namtrong'];
+        if (displayNamTrong == null && rawNamTrong != null) {
+          displayNamTrong = double.tryParse(rawNamTrong)?.toInt();
+        }
+
+        // Kiểm tra xem cleanNote có phải chỉ là chuỗi thuộc tính thô hay không
+        final isRawDumpNote = effectiveAttributes.isNotEmpty &&
+            (cleanNote.startsWith('fid ') || cleanNote.contains('TEN_LO') || cleanNote.contains('ID_LO'));
 
         return Container(
           decoration: const BoxDecoration(
@@ -5307,7 +5401,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
-                          child: Text(plot.fullName,
+                          child: Text(displayTitle,
                               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20))),
                         ),
                         GestureDetector(
@@ -5339,16 +5433,16 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 12),
                     _buildDetailItem(Icons.folder_shared, 'Nhóm dữ liệu:', plot.groupName),
-                    _buildDetailItem(Icons.nature_people, 'Chủ rừng:', plot.chuRung),
-                    _buildDetailItem(Icons.forest, 'Trạng thái:', cleanTrangThai.isNotEmpty ? cleanTrangThai : 'Rừng quy hoạch'),
-                    _buildDetailItem(Icons.eco, 'Loài cây / Giống:', plot.loaiCay),
-                    if (plot.namTrong != null)
-                      _buildDetailItem(Icons.calendar_today, 'Năm trồng:', '${plot.namTrong}'),
+                    _buildDetailItem(Icons.nature_people, 'Chủ rừng:', displayChuRung),
+                    _buildDetailItem(Icons.forest, 'Trạng thái:', displayTrangThai.isNotEmpty ? displayTrangThai : 'Rừng quy hoạch'),
+                    _buildDetailItem(Icons.eco, 'Loài cây / Giống:', displayLoaiCay),
+                    if (displayNamTrong != null)
+                      _buildDetailItem(Icons.calendar_today, 'Năm trồng:', '$displayNamTrong'),
                     if (plot.truLuong != null)
                       _buildDetailItem(Icons.stacked_bar_chart, 'Trữ lượng:', '${plot.truLuong} m³/ha'),
 
-                    // Hiển thị thuộc tính trích xuất từ KML/KMZ (nếu có)
-                    if (plot.attributes.isNotEmpty) ...[
+                    // Hiển thị thuộc tính trích xuất từ KML/KMZ sắp xếp chuẩn xác như Hình 1
+                    if (sortedEntries.isNotEmpty) ...[
                       const SizedBox(height: 14),
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -5365,42 +5459,43 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 const Icon(Icons.list_alt, size: 16, color: Color(0xFF2E7D32)),
                                 const SizedBox(width: 6),
                                 Text(
-                                  'Thông tin thuộc tính hồ sơ (${plot.attributes.length})',
+                                  'Thông tin thuộc tính hồ sơ (${sortedEntries.length})',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF2E7D32)),
                                 ),
                               ],
                             ),
                             const Divider(height: 16),
-                            ...plot.attributes.entries.map((entry) {
+                            ...sortedEntries.map((entry) {
                               final label = _formatAttributeKey(entry.key);
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 2.5),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    SizedBox(
-                                      width: 140,
-                                      child: Text(
-                                        label,
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.w600),
-                                      ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(
+                                    width: 140,
+                                    child: Text(
+                                      label,
+                                      style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.w600),
                                     ),
-                                    Expanded(
-                                      child: Text(
-                                        entry.value.isEmpty ? '—' : entry.value,
-                                        style: const TextStyle(fontSize: 12, color: Colors.black87),
-                                      ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      entry.value.isEmpty ? '—' : entry.value,
+                                      style: const TextStyle(fontSize: 12, color: Colors.black87),
                                     ),
-                                  ],
-                                ),
-                              );
-                            }),
-                          ],
-                        ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
                       ),
-                    ] else if (cleanNote.isNotEmpty) ...[
-                      _buildDetailItem(Icons.note_alt_outlined, 'Ghi chú:', cleanNote),
-                    ],
+                    ),
+                  ],
+                  if (!isRawDumpNote && cleanNote.isNotEmpty) ...[
+                    _buildDetailItem(Icons.note_alt_outlined, 'Ghi chú:', cleanNote),
+                  ],
 
                     const SizedBox(height: 24),
                     // HÀNG NÚT BẤM (ĐƯỢC ĐẨY CAO TRÁNH THANH ĐIỀU HƯỚNG ẢNH HƯỞNG)

@@ -108,6 +108,63 @@ class KmlParser {
     return result;
   }
 
+  /// Trích xuất thuộc tính từ chuỗi ghi chú thô (dạng key: value | key: value hoặc chuỗi phẳng GIS dồn text)
+  static Map<String, String> extractAttributesFromRawNote(String note) {
+    final Map<String, String> result = {};
+    if (note.trim().isEmpty) return result;
+
+    // 1. Dạng ngăn cách bằng | (ví dụ: TEN_LO: 283 | DON_VI: DOI 2)
+    if (note.contains(':') && note.contains('|')) {
+      final parts = note.split('|');
+      for (var p in parts) {
+        final colonIdx = p.indexOf(':');
+        if (colonIdx > 0) {
+          final k = p.substring(0, colonIdx).trim();
+          final v = p.substring(colonIdx + 1).trim();
+          if (k.isNotEmpty && v.isNotEmpty) result[k] = v;
+        }
+      }
+      if (result.isNotEmpty) return result;
+    }
+
+    // 2. Dạng chuỗi phẳng GIS dồn text (như hình người dùng: fid 260 TEN_LO 283 ID_LO_2_CAP 5.08NK.D2.10.044...)
+    final candidateKeys = [
+      'ID_LO_2_CAP', 'ID_LO', 'PHUONG_PHAP_TRONG', 'KHOANG_CACH_TRONG',
+      'MAT_DO_CAY_CAO', 'TT_MAT_CAO_2025', 'TT_MAT_CAO', 'NANG_SUAT_2025', 'XEP_HANG_2025',
+      'TUOI_CAO_2025', 'CAY_CAO_HH', 'NAM_MO_CAO', 'NAM_TRONG', 'HANG_DAT',
+      'CAO_TRINH', 'TEN_DOI', 'DON_VI', 'TEN_LO', 'MAT_DO', 'DIEN_TICH',
+      'GIONG', 'DU_AN', 'fid', 'FID', 'DT', 'GHI_CHU', 'NOTE', 'cTy', 'ntruong',
+      'tenlo', 'hDat', 'PP_trồng', 'PP_trong', 'Khoảng_c', 'Khoang_c', 'giong',
+      'Năm_cạo', 'Nam_cao', 'Chế_đ', 'Che_d', 'Ghi_chu', 'namtrong', 'Ct_TB',
+      'Mật_đ', 'Mat_d', 'Dien_tich_', 'Hiện_tr', 'Hien_tr', 'Phân_lo', 'Phan_lo',
+      'Dien_tich1', 'HT_VUON', 'ht_vuon', 'ht_vườn', 'NAM_CHUYEN', 'nam_chuyen',
+      'CHU_VI', 'chu_vi'
+    ];
+
+    candidateKeys.sort((a, b) => b.length.compareTo(a.length));
+
+    final pattern = RegExp(
+      '(?:^|\\s)(${candidateKeys.map(RegExp.escape).join('|')})(?:\\s|:|=)',
+      caseSensitive: false,
+    );
+
+    final matches = pattern.allMatches(note).toList();
+    for (int i = 0; i < matches.length; i++) {
+      final currentMatch = matches[i];
+      final key = currentMatch.group(1)!.trim();
+      final valStart = currentMatch.end;
+      final valEnd = (i + 1 < matches.length) ? matches[i + 1].start : note.length;
+      if (valEnd > valStart) {
+        final val = note.substring(valStart, valEnd).replaceAll(RegExp(r'^[=:\s]+|[=:\s]+$'), '').trim();
+        if (val.isNotEmpty && !result.containsKey(key)) {
+          result[key] = val;
+        }
+      }
+    }
+
+    return result;
+  }
+
   /// Phân tích cú pháp KML: Hỗ trợ Placemark, Polygon, MultiGeometry, Point, LineString
   static KmlParseResult parse(String kmlContent, {String defaultGroupName = 'Tập dữ liệu KML/KMZ'}) {
     final List<ForestPlot> plots = [];
