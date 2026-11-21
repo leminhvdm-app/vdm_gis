@@ -211,6 +211,22 @@ class FirebaseSyncService {
 
       _isSyncing = false;
       if (anySuccess) {
+        // Đồng bộ thêm metadata tóm tắt siêu nhẹ để app VDM Quản Lý tải ngay lập tức không bị timeout
+        try {
+          final metaPayload = {
+            'groupName': groupName,
+            'deviceTag': _config.deviceTag,
+            'updatedAt': DateTime.now().toIso8601String(),
+            'plotCount': plots.length,
+            'poiCount': pois.length,
+          };
+          http.put(
+            Uri.parse('$baseUrl/vdm_gis/dataset_metadata/$sanitizedKey.json$authQuery'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(metaPayload),
+          ).catchError((_) => http.Response('', 500));
+        } catch (_) {}
+
         _config.lastSyncTime = DateTime.now();
         await saveConfig(_config);
         processOfflineQueue();
