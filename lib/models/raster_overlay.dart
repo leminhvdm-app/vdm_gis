@@ -14,6 +14,8 @@ class RasterOverlay {
   final String groupName;
   double opacity;
   bool isVisible;
+  double offsetLat; // Sai lệch vĩ độ nắn tọa độ (độ thập phân)
+  double offsetLng; // Sai lệch kinh độ nắn tọa độ (độ thập phân)
 
   RasterOverlay({
     required this.id,
@@ -26,14 +28,19 @@ class RasterOverlay {
     required this.groupName,
     this.opacity = 0.88,
     this.isVisible = true,
+    this.offsetLat = 0.0,
+    this.offsetLng = 0.0,
   });
 
   LatLngBounds get bounds => LatLngBounds(
-        LatLng(south, west),
-        LatLng(north, east),
+        LatLng(south + offsetLat, west + offsetLng),
+        LatLng(north + offsetLat, east + offsetLng),
       );
 
-  LatLng get center => LatLng((south + north) / 2, (west + east) / 2);
+  LatLng get center => LatLng(
+        (south + north) / 2 + offsetLat,
+        (west + east) / 2 + offsetLng,
+      );
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -46,6 +53,8 @@ class RasterOverlay {
         'groupName': groupName,
         'opacity': opacity,
         'isVisible': isVisible,
+        'offsetLat': offsetLat,
+        'offsetLng': offsetLng,
       };
 
   factory RasterOverlay.fromMap(Map<String, dynamic> map) => RasterOverlay(
@@ -59,5 +68,7 @@ class RasterOverlay {
         groupName: map['groupName'] ?? '',
         opacity: (map['opacity'] as num?)?.toDouble() ?? 0.88,
         isVisible: map['isVisible'] as bool? ?? true,
+        offsetLat: (map['offsetLat'] as num?)?.toDouble() ?? 0.0,
+        offsetLng: (map['offsetLng'] as num?)?.toDouble() ?? 0.0,
       );
 }

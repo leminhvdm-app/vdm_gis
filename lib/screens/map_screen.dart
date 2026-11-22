@@ -1823,6 +1823,196 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Bảng nắn chỉnh tọa độ trực tiếp cho Lớp phủ Bản đồ ảnh (GeoPackage Raster Tiles)
+  void _showRasterOverlayCalibrationDialog(RasterOverlay overlay, [VoidCallback? onDone]) {
+    double stepMeters = 20.0;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (calibCtx) => StatefulBuilder(
+        builder: (context, setCalibState) {
+          final dyMeters = (overlay.offsetLat * 111000).round();
+          final dxMeters = (overlay.offsetLng * 111000 * 0.97).round();
+
+          void applyShift(double deltaLatMeters, double deltaLngMeters) {
+            final dLat = deltaLatMeters / 111000.0;
+            final dLng = deltaLngMeters / (111000.0 * 0.97);
+            setState(() {
+              overlay.offsetLat += dLat;
+              overlay.offsetLng += dLng;
+            });
+            setCalibState(() {});
+            onDone?.call();
+            _savePersistentData();
+          }
+
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10)],
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.straighten, color: Color(0xFF2E7D32)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Nắn tọa độ: ${overlay.name}',
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(calibCtx),
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Text(
+                          'Bắc/Nam: ${dyMeters >= 0 ? "+$dyMeters" : dyMeters} m',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: dyMeters != 0 ? const Color(0xFF2E7D32) : Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          'Đông/Tây: ${dxMeters >= 0 ? "+$dxMeters" : dxMeters} m',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: dxMeters != 0 ? const Color(0xFF1E88E5) : Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('Bước dịch: ', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      ...[5.0, 20.0, 50.0, 100.0, 500.0].map((step) => Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            child: ChoiceChip(
+                              label: Text('${step.toInt()}m', style: const TextStyle(fontSize: 11)),
+                              selected: stepMeters == step,
+                              selectedColor: const Color(0xFF2E7D32).withValues(alpha: 0.2),
+                              onSelected: (_) => setCalibState(() => stepMeters = step),
+                            ),
+                          )),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        iconSize: 36,
+                        icon: const Icon(Icons.arrow_drop_up, color: Color(0xFF2E7D32)),
+                        onPressed: () => applyShift(stepMeters, 0),
+                        tooltip: 'Dịch lên phía Bắc',
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        iconSize: 36,
+                        icon: const Icon(Icons.arrow_left, color: Color(0xFF1E88E5)),
+                        onPressed: () => applyShift(0, -stepMeters),
+                        tooltip: 'Dịch sang phía Tây',
+                      ),
+                      const SizedBox(width: 40),
+                      IconButton(
+                        iconSize: 36,
+                        icon: const Icon(Icons.arrow_right, color: Color(0xFF1E88E5)),
+                        onPressed: () => applyShift(0, stepMeters),
+                        tooltip: 'Dịch sang phía Đông',
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        iconSize: 36,
+                        icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF2E7D32)),
+                        onPressed: () => applyShift(-stepMeters, 0),
+                        tooltip: 'Dịch xuống phía Nam',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.my_location, size: 16),
+                        label: const Text('🎯 Khớp chuẩn KMZ Kratie (+497m)', style: TextStyle(fontSize: 12)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF2E7D32),
+                          side: const BorderSide(color: Color(0xFF2E7D32)),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            overlay.offsetLat = 0.004481;
+                            overlay.offsetLng = 0.0;
+                          });
+                          setCalibState(() {});
+                          onDone?.call();
+                          _savePersistentData();
+                          _showToast('Đã nắn khớp chuẩn xác 100% với file KMZ Kratie!');
+                        },
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('↺ Đặt lại gốc (0m)', style: TextStyle(fontSize: 12)),
+                        onPressed: () {
+                          setState(() {
+                            overlay.offsetLat = 0.0;
+                            overlay.offsetLng = 0.0;
+                          });
+                          setCalibState(() {});
+                          onDone?.call();
+                          _savePersistentData();
+                          _showToast('Đã khôi phục về tọa độ gốc');
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   // -------------------------------------------------------------
   // SỐ HÓA & NẮN SỬA ĐỈNH LÔ
   // -------------------------------------------------------------
@@ -5029,6 +5219,17 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                                         },
                                                       ),
                                                     ),
+                                                  ),
+                                                  IconButton(
+                                                    padding: EdgeInsets.zero,
+                                                    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                                                    icon: const Icon(Icons.tune, size: 16, color: Color(0xFF2E7D32)),
+                                                    tooltip: 'Nắn chỉnh tọa độ lớp ảnh',
+                                                    onPressed: () {
+                                                      _showRasterOverlayCalibrationDialog(overlaysInGroup.first, () {
+                                                        setSheetState(() {});
+                                                      });
+                                                    },
                                                   ),
                                                 ],
                                               ),

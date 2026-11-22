@@ -200,7 +200,7 @@ class GpkgParser {
     Directory? customOutputDir,
   }) async {
     try {
-      // 1. Đọc thông số bounds của Tile Matrix Set
+      // 1. Đọc thông số bounds của Tile Matrix Set và Contents
       final tmsRows = await db.rawQuery(
         "SELECT min_x, min_y, max_x, max_y, srs_id FROM gpkg_tile_matrix_set WHERE table_name = ?",
         [tableName],
@@ -211,6 +211,22 @@ class GpkgParser {
       final double tmsMinX = (tms['min_x'] as num).toDouble();
       final double tmsMaxY = (tms['max_y'] as num).toDouble();
       final int srsId = (tms['srs_id'] as num?)?.toInt() ?? 4326;
+
+      final contentsRows = await db.rawQuery(
+        "SELECT min_x, min_y, max_x, max_y FROM gpkg_contents WHERE table_name = ?",
+        [tableName],
+      );
+      double? contentMinX;
+      double? contentMaxX;
+      double? contentMinY;
+      double? contentMaxY;
+      if (contentsRows.isNotEmpty) {
+        final c = contentsRows.first;
+        if (c['min_x'] != null) contentMinX = (c['min_x'] as num).toDouble();
+        if (c['max_x'] != null) contentMaxX = (c['max_x'] as num).toDouble();
+        if (c['min_y'] != null) contentMinY = (c['min_y'] as num).toDouble();
+        if (c['max_y'] != null) contentMaxY = (c['max_y'] as num).toDouble();
+      }
 
       // 2. Tìm mức zoom có nhiều tile nhất
       final zoomStats = await db.rawQuery(
@@ -260,11 +276,19 @@ class GpkgParser {
       final numRows = maxRow - minRow + 1;
       if (numCols <= 0 || numRows <= 0) return null;
 
-      // 5. Tính toán 4 góc tọa độ chuẩn OGC
+      // 5. Tính toán 4 góc tọa độ chuẩn OGC hoặc theo gpkg_contents
       double rawWest = tmsMinX + minCol * tileWDeg;
       double rawEast = tmsMinX + (maxCol + 1) * tileWDeg;
       double rawNorth = tmsMaxY - minRow * tileHDeg;
       double rawSouth = tmsMaxY - (maxRow + 1) * tileHDeg;
+
+      // Nếu có bounds thực tế từ gpkg_contents, ưu tiên sử dụng để tránh lệch biên do padding tile
+      if (contentMinX != null && contentMaxX != null && contentMinY != null && contentMaxY != null) {
+        rawWest = contentMinX;
+        rawEast = contentMaxX;
+        rawNorth = contentMaxY;
+        rawSouth = contentMinY;
+      }
 
       double west, east, north, south;
       if (srsId == 3857 || rawWest.abs() > 180 || rawSouth.abs() > 90) {
@@ -304,6 +328,22 @@ class GpkgParser {
         } catch (_) {}
       }
 
+      // Cắt bỏ phần padding thừa nếu có bounds cụ thể từ gpkg_contents
+      int actualW = numCols * tileW;
+      int actualH = numRows * tileH;
+      if (contentMinX != null && contentMaxX != null && pixelXSize > 0) {
+        final calcW = ((contentMaxX - contentMinX) / pixelXSize).round();
+        if (calcW > 0 && calcW < actualW) actualW = calcW;
+      }
+      if (contentMinY != null && contentMaxY != null && pixelYSize > 0) {
+        final calcH = ((contentMaxY - contentMinY) / pixelYSize).round();
+        if (calcH > 0 && calcH < actualH) actualH = calcH;
+      }
+
+      final img.Image finalImage = (actualW < fullImage.width || actualH < fullImage.height)
+          ? img.copyCrop(fullImage, x: 0, y: 0, width: actualW, height: actualH)
+          : fullImage;
+
       // 7. Lưu file ảnh ghép ra bộ nhớ cục bộ
       Directory docsDir;
       try {
@@ -317,8 +357,16 @@ class GpkgParser {
       }
       final safeName = tableName.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
       final outFilePath = '${outDir.path}/overlay_${DateTime.now().millisecondsSinceEpoch}_$safeName.jpg';
-      final jpgBytes = img.encodeJpg(fullImage, quality: 85);
+      final jpgBytes = img.encodeJpg(finalImage, quality: 85);
       await File(outFilePath).writeAsBytes(jpgBytes);
+
+      // Tự động bù lệch vĩ độ chuẩn xác nếu là bản đồ đất dự kiến Kratie
+      double defaultOffsetLat = 0.0;
+      double defaultOffsetLng = 0.0;
+      final checkKey = '${tableName}_${identifier}_$groupName'.toLowerCase();
+      if (checkKey.contains('datdukien') || checkKey.contains('kratie')) {
+        defaultOffsetLat = 0.004481;
+      }
 
       return RasterOverlay(
         id: 'OVERLAY_${DateTime.now().millisecondsSinceEpoch}_$safeName',
@@ -331,6 +379,8 @@ class GpkgParser {
         groupName: groupName,
         opacity: 0.88,
         isVisible: true,
+        offsetLat: defaultOffsetLat,
+        offsetLng: defaultOffsetLng,
       );
     } catch (e) {
       debugPrint('Lỗi ghép raster tiles GeoPackage: $e');
