@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/raster_overlay.dart';
+import '../constants/app_version.dart';
 import '../models/forest_plot.dart';
 import '../models/forest_poi.dart';
 import '../models/patrol_track.dart';
@@ -1401,10 +1402,10 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               // Thông tin ứng dụng
               Center(
                 child: Column(
-                  children: const [
+                  children: [
                     Text(
-                      'Phiên bản: 1.0.2',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54),
+                      AppVersion.display,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54),
                     ),
                     SizedBox(height: 2),
                     Text(

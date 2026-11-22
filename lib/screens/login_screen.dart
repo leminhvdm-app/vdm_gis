@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../models/user_profile.dart';
 import '../services/user_session_tracker.dart';
 import '../services/device_license_manager.dart';
+import '../constants/app_version.dart';
 import 'map_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -732,12 +733,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           children: [
                             Row(
                               mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(Icons.verified, size: 15, color: Colors.amberAccent),
-                                SizedBox(width: 6),
+                              children: [
+                                const Icon(Icons.verified, size: 15, color: Colors.amberAccent),
+                                const SizedBox(width: 6),
                                 Text(
-                                  'Phiên bản: 1.0.4 • Bảo vệ bản quyền máy',
-                                  style: TextStyle(
+                                  '${AppVersion.display} • Bảo vệ bản quyền máy',
+                                  style: const TextStyle(
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
