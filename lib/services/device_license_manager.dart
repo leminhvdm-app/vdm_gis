@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../utils/device_helper.dart';
 
-/// Quản lý Bản quyền, Mã Cài Đặt (Installation Code) và Mã Kích Hoạt (Activation Key)
+/// Quản lý Bản quyền, Mã Cài Đặt (Installation Code) và Khóa/Mở từ xa
 class DeviceLicenseManager {
   static final DeviceLicenseManager _instance = DeviceLicenseManager._internal();
   factory DeviceLicenseManager() => _instance;
@@ -13,9 +14,14 @@ class DeviceLicenseManager {
   static const String _secretSalt = "VDM_GIS_FOREST_2026_LICENSE_SECRET";
   static String? _cachedInstallCode;
   static bool? _cachedIsActivated;
+  static bool? _cachedIsBlocked;
 
   static String get cachedInstallCode => _cachedInstallCode ?? 'Đang tải...';
-  static bool get isActivatedSync => _cachedIsActivated ?? false;
+  static bool get isActivatedSync => (_cachedIsActivated ?? false) && !(_cachedIsBlocked ?? false);
+  static bool get isBlockedSync => _cachedIsBlocked ?? false;
+
+  static const String defaultFirebaseBaseUrl =
+      'https://vdm-gis-default-rtdb.asia-southeast1.firebasedatabase.app';
 
   static Future<File> _getFile() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -39,6 +45,7 @@ class DeviceLicenseManager {
           if (code != null && code.isNotEmpty) {
             _cachedInstallCode = code;
             _cachedIsActivated = map['isActivated'] as bool? ?? false;
+            _cachedIsBlocked = map['isBlocked'] as bool? ?? false;
             return code;
           }
         }
@@ -66,14 +73,15 @@ class DeviceLicenseManager {
 
     _cachedInstallCode = newCode;
     _cachedIsActivated = false;
+    _cachedIsBlocked = false;
 
     // Lưu vào file
-    await _saveLicense(installCode: newCode, isActivated: false, activationKey: '');
+    await _saveLicense(installCode: newCode, isActivated: false, isBlocked: false, activationKey: '');
     return newCode;
   }
 
   /// Thuật toán sinh Mã kích hoạt (Activation Key) từ Mã cài đặt (Installation Code)
-  /// Định dạng: XXXX-YYYY (ví dụ: 6829-4153 hoặc VDM-6829-4153)
+  /// Định dạng: XXXX-YYYY (ví dụ: 6829-4153)
   static String generateActivationKey(String installCode) {
     final clean = installCode.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
     final combined = "$clean$_secretSalt";
@@ -105,6 +113,7 @@ class DeviceLicenseManager {
 
   /// Kiểm tra trạng thái kích hoạt của máy
   static Future<bool> isDeviceActivated() async {
+    if (_cachedIsBlocked == true) return false;
     if (_cachedIsActivated != null) return _cachedIsActivated!;
 
     try {
@@ -113,6 +122,8 @@ class DeviceLicenseManager {
         final content = await file.readAsString();
         if (content.trim().isNotEmpty) {
           final map = jsonDecode(content) as Map<String, dynamic>;
+          _cachedIsBlocked = map['isBlocked'] as bool? ?? false;
+          if (_cachedIsBlocked == true) return false;
           _cachedIsActivated = map['isActivated'] as bool? ?? false;
           _cachedInstallCode = map['installCode'] as String?;
           return _cachedIsActivated!;
@@ -128,28 +139,64 @@ class DeviceLicenseManager {
   static Future<void> activateDevice(String activationKey) async {
     final code = await getInstallationCode();
     _cachedIsActivated = true;
+    _cachedIsBlocked = false;
     await _saveLicense(
       installCode: code,
       isActivated: true,
+      isBlocked: false,
       activationKey: activationKey,
       activatedAt: DateTime.now().toIso8601String(),
     );
   }
 
-  /// Đặt lại trạng thái kích hoạt (dành cho quản trị)
-  static Future<void> resetActivation() async {
+  /// Đặt lại trạng thái kích hoạt hoặc khóa máy
+  static Future<void> resetActivation({bool isBlocked = false}) async {
     final code = await getInstallationCode();
     _cachedIsActivated = false;
+    _cachedIsBlocked = isBlocked;
     await _saveLicense(
       installCode: code,
       isActivated: false,
+      isBlocked: isBlocked,
       activationKey: '',
     );
+  }
+
+  /// Kiểm tra trực tiếp trên Firebase xem máy này có bị Quản trị viên KHÓA không
+  /// Trả về true nếu bị khóa, false nếu bình thường
+  static Future<bool> checkRemoteBlockStatus({String? firebaseBaseUrl}) async {
+    try {
+      final code = await getInstallationCode();
+      final cleanCode = code.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_');
+      final base = (firebaseBaseUrl != null && firebaseBaseUrl.isNotEmpty)
+          ? firebaseBaseUrl
+          : defaultFirebaseBaseUrl;
+
+      // 1. Kiểm tra node danh sách khóa tập trung
+      final blockUrl = '$base/vdm_gis/danh_sach_khoa/$cleanCode.json';
+      final res = await http.get(Uri.parse(blockUrl)).timeout(const Duration(seconds: 4));
+
+      if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+        final dynamic val = jsonDecode(res.body);
+        if (val == true || val == 'true') {
+          // Bị khóa từ xa!
+          await resetActivation(isBlocked: true);
+          return true;
+        }
+      }
+
+      _cachedIsBlocked = false;
+      return false;
+    } catch (_) {
+      // Ngoại tuyến thì giữ nguyên trạng thái cache
+      return _cachedIsBlocked ?? false;
+    }
   }
 
   static Future<void> _saveLicense({
     required String installCode,
     required bool isActivated,
+    required bool isBlocked,
     required String activationKey,
     String? activatedAt,
   }) async {
@@ -158,6 +205,7 @@ class DeviceLicenseManager {
       final map = {
         'installCode': installCode,
         'isActivated': isActivated,
+        'isBlocked': isBlocked,
         'activationKey': activationKey,
         'activatedAt': activatedAt,
         'updatedAt': DateTime.now().toIso8601String(),

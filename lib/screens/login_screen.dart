@@ -78,6 +78,36 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    // Kiểm tra xem thiết bị này có đang bị Quản lý khóa quyền sử dụng không
+    setState(() => _isLoading = true);
+    final isBlocked = await DeviceLicenseManager.checkRemoteBlockStatus();
+    if (isBlocked) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.block, color: Colors.red, size: 26),
+                SizedBox(width: 10),
+                Text('Thiết bị bị khóa', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: Text(
+              'Mã cài đặt "$_installCode" của thiết bị này đã bị Quản lý KHÓA QUYỀN SỬ DỤNG.\n\nBạn không thể tiếp tục đăng nhập. Vui lòng liên hệ Quản trị viên để được mở khóa.',
+              style: const TextStyle(fontSize: 13),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
     // Bắt buộc phải có mã kích hoạt nếu máy chưa được kích hoạt
     if (!_isActivated) {
       final enteredKey = _activationCodeController.text.trim();

@@ -306,6 +306,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   // Đồng hồ thực tế & Nhiệt độ thời gian thực
   final ValueNotifier<DateTime> _clockNotifier = ValueNotifier(DateTime.now());
   Timer? _clockTimer;
+  Timer? _licenseCheckTimer;
   String _currentTemperature = '--';
   DateTime? _lastWeatherFetchTime;
   LatLng? _lastWeatherFetchPos;
@@ -332,6 +333,12 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     // Bắt đầu định vị GPS thật của thiết bị ngay khi mở app
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestAndGetRealLocation();
+      _checkRemoteBlockStatusPeriodically();
+    });
+
+    // Định kỳ kiểm tra trạng thái khóa từ xa từ Quản lý (mỗi 25 giây khi có mạng)
+    _licenseCheckTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      _checkRemoteBlockStatusPeriodically();
     });
   }
 
@@ -483,9 +490,59 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     UserSessionTracker().endSession();
     _clockTimer?.cancel();
+    _licenseCheckTimer?.cancel();
     _clockNotifier.dispose();
     _positionStreamSub?.cancel();
     super.dispose();
+  }
+
+  /// Định kỳ kiểm tra nếu thiết bị bị Quản trị viên khóa từ xa
+  Future<void> _checkRemoteBlockStatusPeriodically() async {
+    final isBlocked = await DeviceLicenseManager.checkRemoteBlockStatus();
+    if (isBlocked && mounted) {
+      _licenseCheckTimer?.cancel();
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.block, color: Colors.redAccent, size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'THIẾT BỊ ĐÃ BỊ KHÓA',
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Mã cài đặt của thiết bị này đã bị Quản trị viên khóa quyền sử dụng từ xa trên hệ thống Quản lý.\n\nỨng dụng sẽ tự động chuyển về màn hình đăng nhập.',
+            style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              },
+              child: const Text('Về màn hình đăng nhập', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   /// Cập nhật nhiệt độ theo thời gian thực từ Open-Meteo API
