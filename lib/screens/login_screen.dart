@@ -560,7 +560,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               controller: _fullNameController,
                               textCapitalization: TextCapitalization.words,
                               decoration: InputDecoration(
-                                hintText: 'Ví dụ: Lê Văn Minh',
+                                hintText: 'Ví dụ: Võ Đức Minh',
                                 hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
                                 prefixIcon: const Icon(Icons.person, color: Color(0xFF2E7D32)),
                                 filled: true,
@@ -595,7 +595,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             TextFormField(
                               controller: _companyController,
                               decoration: InputDecoration(
-                                hintText: 'Ví dụ: Công ty Lâm Nghiệp Kratie',
+                                hintText: 'Ví dụ: DNKC',
                                 hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
                                 prefixIcon: const Icon(Icons.business, color: Color(0xFF2E7D32)),
                                 filled: true,
@@ -630,7 +630,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             TextFormField(
                               controller: _unitController,
                               decoration: InputDecoration(
-                                hintText: 'Ví dụ: Đội Tuần Tra Rừng Số 2',
+                                hintText: 'Ví dụ: Phòng QLKT',
                                 hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
                                 prefixIcon: const Icon(Icons.badge, color: Color(0xFF2E7D32)),
                                 filled: true,
