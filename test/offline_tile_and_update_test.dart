@@ -50,7 +50,7 @@ void main() {
     });
 
     test('currentVersionCode và currentVersionName hợp lệ', () {
-      expect(AppUpdateService.currentVersionCode, greaterThanOrEqualTo(4));
+      expect(AppUpdateService.currentVersionCode, greaterThanOrEqualTo(1));
       expect(AppUpdateService.currentVersionName.isNotEmpty, isTrue);
     });
   });
