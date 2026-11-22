@@ -2,26 +2,40 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import 'package:latlong2/latlong.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/forest_plot.dart';
 import '../models/forest_poi.dart';
+import '../models/raster_overlay.dart';
 import 'gis_calculator.dart';
 import 'vn2000_converter.dart';
 
 class GpkgParseResult {
   final List<ForestPlot> plots;
   final List<ForestPoi> pois;
+  final List<RasterOverlay> overlays;
   final String info;
 
-  GpkgParseResult({required this.plots, required this.pois, this.info = ''});
+  GpkgParseResult({
+    required this.plots,
+    required this.pois,
+    this.overlays = const [],
+    this.info = '',
+  });
 }
 
 class GpkgParser {
   /// Mở và phân tích file GeoPackage (.gpkg)
-  static Future<GpkgParseResult> parseFile(File file, {String? defaultGroupName}) async {
+  static Future<GpkgParseResult> parseFile(
+    File file, {
+    String? defaultGroupName,
+    Directory? customOutputDir,
+  }) async {
     final List<ForestPlot> plots = [];
     final List<ForestPoi> pois = [];
+    final List<RasterOverlay> overlays = [];
     final group = defaultGroupName ?? file.uri.pathSegments.last;
 
     Database? db;
@@ -37,7 +51,7 @@ class GpkgParser {
       int poiIndex = 1;
 
       if (contents.isEmpty) {
-        // Kiểm tra xem có bảng tiles raster không
+        // Kiểm tra xem có bảng tiles raster (bản đồ ảnh nắn tọa độ) không
         final tiles = await db.rawQuery(
           "SELECT table_name, data_type, identifier, min_x, min_y, max_x, max_y, srs_id FROM gpkg_contents WHERE data_type = 'tiles'",
         );
@@ -45,222 +59,125 @@ class GpkgParser {
           for (var t in tiles) {
             final tableName = t['table_name'] as String;
             final identifier = t['identifier']?.toString() ?? tableName;
-            double? minX = (t['min_x'] as num?)?.toDouble();
-            double? minY = (t['min_y'] as num?)?.toDouble();
-            double? maxX = (t['max_x'] as num?)?.toDouble();
-            double? maxY = (t['max_y'] as num?)?.toDouble();
-            int srsId = (t['srs_id'] as num?)?.toInt() ?? 4326;
 
-            // Nếu gpkg_contents chưa có bounds, tìm trong gpkg_tile_matrix_set
-            if (minX == null || minY == null || maxX == null || maxY == null) {
-              try {
-                final tms = await db.rawQuery(
-                  "SELECT min_x, min_y, max_x, max_y, srs_id FROM gpkg_tile_matrix_set WHERE table_name = ?",
-                  [tableName],
-                );
-                if (tms.isNotEmpty) {
-                  minX = (tms.first['min_x'] as num?)?.toDouble();
-                  minY = (tms.first['min_y'] as num?)?.toDouble();
-                  maxX = (tms.first['max_x'] as num?)?.toDouble();
-                  maxY = (tms.first['max_y'] as num?)?.toDouble();
-                  srsId = (tms.first['srs_id'] as num?)?.toInt() ?? srsId;
-                }
-              } catch (_) {}
-            }
+            // Tiến hành ghép mảnh ảnh ngói (raster tiles) thành lớp phủ bản đồ hoàn chỉnh
+            final rasterOverlay = await _stitchRasterTiles(
+              db,
+              tableName,
+              identifier,
+              group,
+              customOutputDir: customOutputDir,
+            );
 
-            // Đếm số lượng ngói ảnh (tiles)
-            int tileCount = 0;
-            int minZoom = 0;
-            int maxZoom = 0;
-            try {
-              final stats = await db.rawQuery(
-                "SELECT count(*) as cnt, min(zoom_level) as zmin, max(zoom_level) as zmax FROM $tableName",
-              );
-              if (stats.isNotEmpty) {
-                tileCount = (stats.first['cnt'] as num?)?.toInt() ?? 0;
-                minZoom = (stats.first['zmin'] as num?)?.toInt() ?? 0;
-                maxZoom = (stats.first['zmax'] as num?)?.toInt() ?? 0;
-              }
-            } catch (_) {}
+            if (rasterOverlay != null) {
+              overlays.add(rasterOverlay);
 
-            if (minX != null && minY != null && maxX != null && maxY != null) {
-              // Chuyển đổi hệ tọa độ nếu cần
-              LatLng pMin;
-              LatLng pMax;
-
-              if (srsId == 3857 || minX.abs() > 180 || minY.abs() > 90) {
-                // Web Mercator hoặc phẳng sang WGS84
-                pMin = _webMercatorToWgs84(minX, minY);
-                pMax = _webMercatorToWgs84(maxX, maxY);
-              } else {
-                pMin = LatLng(minY, minX);
-                pMax = LatLng(maxY, maxX);
-              }
-
-              // Đa giác ranh giới bao phủ của bản đồ Raster
-              final boundary = [
-                LatLng(pMin.latitude, pMin.longitude),
-                LatLng(pMin.latitude, pMax.longitude),
-                LatLng(pMax.latitude, pMax.longitude),
-                LatLng(pMax.latitude, pMin.longitude),
-              ];
-
-              final areaHa = GisCalculator.calculateAreaInHectares(boundary);
-              final centerLat = (pMin.latitude + pMax.latitude) / 2;
-              final centerLng = (pMin.longitude + pMax.longitude) / 2;
-
-              final rasterPlot = ForestPlot(
-                id: 'GPKG_RASTER_${plotIndex++}',
-                lo: identifier.isNotEmpty ? identifier : tableName,
-                khoanh: 'Bản đồ Raster',
-                tieuKhu: 'GPKG',
-                chuRung: 'Bản đồ Raster GeoPackage',
-                dienTich: areaHa,
-                loaiCay: 'Ảnh bản đồ ($tileCount ô ngói)',
-                namTrong: maxZoom,
-                trangThaiRung: 'Bản đồ ảnh Raster ($tileCount ô ngói, Zoom $minZoom-$maxZoom)',
-                boundary: boundary,
-                color: const Color(0xFF00ACC1),
-                groupName: group,
-                attributes: {
-                  'Định dạng': 'GeoPackage Raster Tiles (OGC)',
-                  'Lớp bản đồ': tableName,
-                  'Số lượng ô ngói': '$tileCount tiles',
-                  'Mức Zoom': '$minZoom - $maxZoom',
-                  'Hệ tọa độ': 'EPSG:$srsId',
-                  'Diện tích bao phủ': '${areaHa.toStringAsFixed(1)} ha',
-                  'Tọa độ tâm': '${centerLat.toStringAsFixed(6)}, ${centerLng.toStringAsFixed(6)}',
-                },
-              );
-              plots.add(rasterPlot);
-
+              // Thêm điểm mốc trung tâm để người dùng có thể bấm zoom tới bản đồ
+              final center = rasterOverlay.center;
               pois.add(ForestPoi(
                 id: 'POI_RASTER_${poiIndex++}',
-                title: 'Bản đồ: $identifier',
-                description: 'Tâm bản đồ ảnh Raster GPKG ($tileCount ô ngói, ${areaHa.toStringAsFixed(1)} ha)',
-                position: LatLng(centerLat, centerLng),
-                timestamp: DateTime.now(),
-                type: PoiType.boundaryMark,
-                groupName: group,
-              ));
-            }
-          }
-
-          if (plots.isNotEmpty) {
-            return GpkgParseResult(
-              plots: plots,
-              pois: pois,
-              info: 'Đã nạp ${plots.length} lớp bản đồ Raster từ GeoPackage ($group)',
-            );
-          }
-        }
-      }
-
-      for (var content in contents) {
-        final tableName = content['table_name'] as String;
-
-        // Tìm cột hình học trong gpkg_geometry_columns
-        String geomColumn = 'geom';
-        try {
-          final geomCols = await db.rawQuery(
-            "SELECT column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns WHERE table_name = ?",
-            [tableName],
-          );
-          if (geomCols.isNotEmpty) {
-            geomColumn = geomCols.first['column_name'] as String;
-          } else {
-            final cols = await db.rawQuery("PRAGMA table_info($tableName)");
-            for (var c in cols) {
-              final colName = c['name']?.toString().toLowerCase() ?? '';
-              if (colName == 'geom' || colName == 'geometry' || colName == 'the_geom' || colName == 'shape') {
-                geomColumn = c['name'] as String;
-                break;
-              }
-            }
-          }
-        } catch (_) {}
-
-        // Truy vấn dữ liệu thuộc tính và hình học
-        final rows = await db.query(tableName, limit: 3000);
-
-        for (var row in rows) {
-          final geomData = row[geomColumn];
-          if (geomData == null || geomData is! Uint8List) continue;
-
-          final geometries = parseGpbGeometry(geomData);
-          if (geometries.isEmpty) continue;
-
-          // Trích xuất các thuộc tính
-          final rowMap = Map<String, dynamic>.from(row);
-          rowMap.remove(geomColumn);
-
-          final lo = rowMap['lo']?.toString() ??
-              rowMap['ten_lo']?.toString() ??
-              rowMap['tenlo']?.toString() ??
-              rowMap['name']?.toString() ??
-              'Lô GPKG $plotIndex';
-
-          final khoanh = rowMap['khoanh']?.toString() ??
-              rowMap['ntruong']?.toString() ??
-              rowMap['khoanh_so']?.toString() ??
-              'K1';
-
-          final tieuKhu = rowMap['tieu_khu']?.toString() ??
-              rowMap['tieukhu']?.toString() ??
-              rowMap['cty']?.toString() ??
-              'GPKG';
-
-          final chuRung = rowMap['chu_rung']?.toString() ??
-              rowMap['cty']?.toString() ??
-              'Nhập từ GeoPackage';
-
-          final trangThai = rowMap['trang_thai']?.toString() ??
-              rowMap['trangthai']?.toString() ??
-              rowMap['hien_tr']?.toString() ??
-              'Rừng quy hoạch GPKG';
-
-          final loaiCay = rowMap['loai_cay']?.toString() ??
-              rowMap['giong']?.toString() ??
-              'Theo hồ sơ GPKG';
-
-          final dienTichRaw = rowMap['dien_tich'] ?? rowMap['area'] ?? rowMap['dien_tich1'];
-          double? dienTich = dienTichRaw != null ? double.tryParse(dienTichRaw.toString()) : null;
-
-          final note = rowMap.entries.map((e) => '${e.key}: ${e.value}').join(' | ');
-
-          for (var geom in geometries) {
-            if (geom.length >= 3) {
-              // Polygon Lô
-              final calcArea = GisCalculator.calculateAreaInHectares(geom);
-              plots.add(ForestPlot(
-                id: 'GPKG_${DateTime.now().millisecondsSinceEpoch}_$plotIndex',
-                tieuKhu: tieuKhu,
-                khoanh: khoanh,
-                lo: lo,
-                dienTich: dienTich ?? double.parse(calcArea.toStringAsFixed(2)),
-                chuRung: chuRung,
-                trangThaiRung: trangThai,
-                loaiCay: loaiCay,
-                boundary: geom,
-                color: const Color(0xFF6A1B9A),
-                note: note,
-                groupName: group,
-                attributes: rowMap.map((k, v) => MapEntry(k, v?.toString() ?? '')),
-              ));
-              plotIndex++;
-            } else if (geom.length == 1) {
-              // Điểm POI
-              pois.add(ForestPoi(
-                id: 'GPKG_POI_${DateTime.now().millisecondsSinceEpoch}_$poiIndex',
-                title: lo,
-                description: note,
-                position: geom.first,
+                title: 'Bản đồ: ${rasterOverlay.name}',
+                description: 'Tâm bản đồ ảnh sơ đồ nắn tọa độ (${rasterOverlay.name})',
+                position: center,
                 type: PoiType.boundaryMark,
                 timestamp: DateTime.now(),
                 severity: 'Bình thường',
                 groupName: group,
               ));
-              poiIndex++;
+            }
+          }
+        }
+      } else {
+        // 2. Phân tích các lớp vector features (Polygon / Point)
+        for (var c in contents) {
+          final tableName = c['table_name'] as String;
+
+          final geomCols = await db.rawQuery(
+            "SELECT column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns WHERE table_name = ?",
+            [tableName],
+          );
+
+          if (geomCols.isEmpty) continue;
+          final geomColName = geomCols.first['column_name'] as String;
+
+          final rows = await db.query(tableName);
+
+          for (var row in rows) {
+            final geomBytes = row[geomColName] as Uint8List?;
+            if (geomBytes == null || geomBytes.isEmpty) continue;
+
+            final geometries = parseGpbGeometry(geomBytes);
+            if (geometries.isEmpty) continue;
+
+            final rowMap = Map<String, dynamic>.from(row)..remove(geomColName);
+
+            final lo = rowMap['lo']?.toString() ??
+                rowMap['ten_lo']?.toString() ??
+                rowMap['name']?.toString() ??
+                rowMap['id']?.toString() ??
+                'Lô $plotIndex';
+
+            final khoanh = rowMap['khoanh']?.toString() ??
+                rowMap['ten_khoanh']?.toString() ??
+                rowMap['subdistrict']?.toString() ??
+                '--';
+
+            final tieuKhu = rowMap['tieu_khu']?.toString() ??
+                rowMap['tk']?.toString() ??
+                rowMap['district']?.toString() ??
+                '--';
+
+            final chuRung = rowMap['chu_rung']?.toString() ??
+                rowMap['owner']?.toString() ??
+                'Chưa xác định';
+
+            final trangThai = rowMap['trang_thai']?.toString() ??
+                rowMap['status']?.toString() ??
+                'Rừng tự nhiên';
+
+            final loaiCay = rowMap['loai_cay']?.toString() ??
+                rowMap['giong']?.toString() ??
+                'Theo hồ sơ GPKG';
+
+            final dienTichRaw = rowMap['dien_tich'] ?? rowMap['area'] ?? rowMap['dien_tich1'];
+            double? dienTich = dienTichRaw != null ? double.tryParse(dienTichRaw.toString()) : null;
+
+            final note = rowMap.entries.map((e) => '${e.key}: ${e.value}').join(' | ');
+
+            for (var geom in geometries) {
+              if (geom.length >= 3) {
+                // Polygon Lô
+                final calcArea = GisCalculator.calculateAreaInHectares(geom);
+                plots.add(ForestPlot(
+                  id: 'GPKG_${DateTime.now().millisecondsSinceEpoch}_$plotIndex',
+                  tieuKhu: tieuKhu,
+                  khoanh: khoanh,
+                  lo: lo,
+                  dienTich: dienTich ?? double.parse(calcArea.toStringAsFixed(2)),
+                  chuRung: chuRung,
+                  trangThaiRung: trangThai,
+                  loaiCay: loaiCay,
+                  boundary: geom,
+                  color: const Color(0xFF6A1B9A),
+                  note: note,
+                  groupName: group,
+                  attributes: rowMap.map((k, v) => MapEntry(k, v?.toString() ?? '')),
+                ));
+                plotIndex++;
+              } else if (geom.length == 1) {
+                // Điểm POI
+                pois.add(ForestPoi(
+                  id: 'GPKG_POI_${DateTime.now().millisecondsSinceEpoch}_$poiIndex',
+                  title: lo,
+                  description: note,
+                  position: geom.first,
+                  type: PoiType.boundaryMark,
+                  timestamp: DateTime.now(),
+                  severity: 'Bình thường',
+                  groupName: group,
+                ));
+                poiIndex++;
+              }
             }
           }
         }
@@ -271,7 +188,154 @@ class GpkgParser {
       await db?.close();
     }
 
-    return GpkgParseResult(plots: plots, pois: pois);
+    return GpkgParseResult(plots: plots, pois: pois, overlays: overlays);
+  }
+
+  /// Trích xuất và ghép các mảnh ngói (Raster Tiles) thành 1 tấm ảnh bản đồ nắn tọa độ duy nhất
+  static Future<RasterOverlay?> _stitchRasterTiles(
+    Database db,
+    String tableName,
+    String identifier,
+    String groupName, {
+    Directory? customOutputDir,
+  }) async {
+    try {
+      // 1. Đọc thông số bounds của Tile Matrix Set
+      final tmsRows = await db.rawQuery(
+        "SELECT min_x, min_y, max_x, max_y, srs_id FROM gpkg_tile_matrix_set WHERE table_name = ?",
+        [tableName],
+      );
+      if (tmsRows.isEmpty) return null;
+
+      final tms = tmsRows.first;
+      final double tmsMinX = (tms['min_x'] as num).toDouble();
+      final double tmsMaxY = (tms['max_y'] as num).toDouble();
+      final int srsId = (tms['srs_id'] as num?)?.toInt() ?? 4326;
+
+      // 2. Tìm mức zoom có nhiều tile nhất
+      final zoomStats = await db.rawQuery(
+        "SELECT zoom_level, count(*) as cnt FROM $tableName GROUP BY zoom_level ORDER BY count(*) DESC, zoom_level DESC LIMIT 1",
+      );
+      if (zoomStats.isEmpty) return null;
+      final int targetZoom = (zoomStats.first['zoom_level'] as num).toInt();
+
+      // 3. Đọc kích thước ma trận của mức zoom này
+      final tmRows = await db.rawQuery(
+        "SELECT pixel_x_size, pixel_y_size, tile_width, tile_height FROM gpkg_tile_matrix WHERE table_name = ? AND zoom_level = ?",
+        [tableName, targetZoom],
+      );
+      if (tmRows.isEmpty) return null;
+
+      final tm = tmRows.first;
+      final double pixelXSize = (tm['pixel_x_size'] as num).toDouble();
+      final double pixelYSize = (tm['pixel_y_size'] as num).toDouble();
+      final int tileW = (tm['tile_width'] as num).toInt();
+      final int tileH = (tm['tile_height'] as num).toInt();
+
+      final double tileWDeg = tileW * pixelXSize;
+      final double tileHDeg = tileH * pixelYSize;
+
+      // 4. Đọc toàn bộ các mảnh tile của zoom này
+      final tileRows = await db.rawQuery(
+        "SELECT tile_column, tile_row, tile_data FROM $tableName WHERE zoom_level = ?",
+        [targetZoom],
+      );
+      if (tileRows.isEmpty) return null;
+
+      int minCol = 999999999;
+      int maxCol = -1;
+      int minRow = 999999999;
+      int maxRow = -1;
+
+      for (var r in tileRows) {
+        final col = (r['tile_column'] as num).toInt();
+        final row = (r['tile_row'] as num).toInt();
+        if (col < minCol) minCol = col;
+        if (col > maxCol) maxCol = col;
+        if (row < minRow) minRow = row;
+        if (row > maxRow) maxRow = row;
+      }
+
+      final numCols = maxCol - minCol + 1;
+      final numRows = maxRow - minRow + 1;
+      if (numCols <= 0 || numRows <= 0) return null;
+
+      // 5. Tính toán 4 góc tọa độ chuẩn OGC
+      double rawWest = tmsMinX + minCol * tileWDeg;
+      double rawEast = tmsMinX + (maxCol + 1) * tileWDeg;
+      double rawNorth = tmsMaxY - minRow * tileHDeg;
+      double rawSouth = tmsMaxY - (maxRow + 1) * tileHDeg;
+
+      double west, east, north, south;
+      if (srsId == 3857 || rawWest.abs() > 180 || rawSouth.abs() > 90) {
+        final sw = _webMercatorToWgs84(rawWest, rawSouth);
+        final ne = _webMercatorToWgs84(rawEast, rawNorth);
+        west = sw.longitude;
+        south = sw.latitude;
+        east = ne.longitude;
+        north = ne.latitude;
+      } else {
+        west = rawWest;
+        east = rawEast;
+        north = rawNorth;
+        south = rawSouth;
+      }
+
+      // 6. Ghép toàn bộ các mảnh tile thành 1 ảnh Canvas duy nhất
+      final fullImage = img.Image(width: numCols * tileW, height: numRows * tileH);
+      img.fill(fullImage, color: img.ColorRgb8(255, 255, 255));
+
+      for (var r in tileRows) {
+        final col = (r['tile_column'] as num).toInt() - minCol;
+        final row = (r['tile_row'] as num).toInt() - minRow;
+        final data = r['tile_data'] as Uint8List?;
+        if (data == null || data.isEmpty) continue;
+
+        try {
+          final tileImg = img.decodeImage(data);
+          if (tileImg != null) {
+            img.compositeImage(
+              fullImage,
+              tileImg,
+              dstX: col * tileW,
+              dstY: row * tileH,
+            );
+          }
+        } catch (_) {}
+      }
+
+      // 7. Lưu file ảnh ghép ra bộ nhớ cục bộ
+      Directory docsDir;
+      try {
+        docsDir = customOutputDir ?? await getApplicationDocumentsDirectory();
+      } catch (_) {
+        docsDir = Directory.systemTemp;
+      }
+      final outDir = Directory('${docsDir.path}/raster_overlays');
+      if (!await outDir.exists()) {
+        await outDir.create(recursive: true);
+      }
+      final safeName = tableName.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+      final outFilePath = '${outDir.path}/overlay_${DateTime.now().millisecondsSinceEpoch}_$safeName.jpg';
+      final jpgBytes = img.encodeJpg(fullImage, quality: 85);
+      await File(outFilePath).writeAsBytes(jpgBytes);
+
+      return RasterOverlay(
+        id: 'OVERLAY_${DateTime.now().millisecondsSinceEpoch}_$safeName',
+        name: identifier.isNotEmpty ? identifier : tableName,
+        imagePath: outFilePath,
+        south: south,
+        north: north,
+        west: west,
+        east: east,
+        groupName: groupName,
+        opacity: 0.88,
+        isVisible: true,
+      );
+    } catch (e) {
+      debugPrint('Lỗi ghép raster tiles GeoPackage: $e');
+      return null;
+    }
   }
 
   /// Phân tích dữ liệu GeoPackage Binary Header + WKB
@@ -356,7 +420,6 @@ class GpkgParser {
         for (int i = 0; i < numPoly; i++) {
           final sub = parseWkb(bytes, cur);
           polygons.addAll(sub);
-          // Cần nhảy qua độ dài của polygon con (ước lượng an toàn)
           if (sub.isNotEmpty) {
             cur += 9 + (sub.first.length * 16);
           }

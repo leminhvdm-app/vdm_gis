@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/raster_overlay.dart';
 import '../models/forest_plot.dart';
 import '../models/forest_poi.dart';
 import '../models/patrol_track.dart';
@@ -128,6 +129,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     final Set<String> existingGroups = {
       ..._plots.map((p) => p.groupName),
       ..._poiList.map((p) => p.groupName),
+      ..._rasterOverlays.map((o) => o.groupName),
     };
 
     final List<String> ordered = _datasetGroupOrder.where((g) => existingGroups.contains(g)).toList();
@@ -152,6 +154,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
   // Quản lý hiển thị và nhóm dữ liệu đã nhập (Bật/tắt từng nhóm riêng biệt, tránh nằm chồng lên nhau)
   final Set<String> _hiddenGroups = {};
+  final List<RasterOverlay> _rasterOverlays = [];
   List<ForestPlot>? _cachedVisiblePlots;
 
   void _invalidatePlotCache() {
@@ -302,6 +305,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         'plots': _plots.map((p) => p.toMap()).toList(),
         'pois': _poiList.map((p) => p.toMap()).toList(),
         'hiddenGroups': _hiddenGroups.toList(),
+        'rasterOverlays': _rasterOverlays.map((o) => o.toMap()).toList(),
         'groupOrder': _datasetGroupOrder,
         'labelColor': _labelColor.toARGB32(),
         'labelHasHalo': _labelHasHalo,
@@ -1304,21 +1308,26 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           final file = File(filePath);
           final parseResult = await GpkgParser.parseFile(file, defaultGroupName: fileName);
 
-          if (parseResult.plots.isNotEmpty || parseResult.pois.isNotEmpty) {
+          if (parseResult.plots.isNotEmpty || parseResult.pois.isNotEmpty || parseResult.overlays.isNotEmpty) {
             setState(() {
               _plots.addAll(parseResult.plots);
               _poiList.addAll(parseResult.pois);
+              _rasterOverlays.addAll(parseResult.overlays);
               _hiddenGroups.remove(fileName);
+              _invalidatePlotCache();
             });
             _savePersistentData();
 
-            if (parseResult.plots.isNotEmpty) {
+            if (parseResult.overlays.isNotEmpty) {
+              _mapController.move(parseResult.overlays.first.center, 13.0);
+            } else if (parseResult.plots.isNotEmpty) {
               _mapController.move(parseResult.plots.first.center, 15.0);
             } else if (parseResult.pois.isNotEmpty) {
               _mapController.move(parseResult.pois.first.position, 15.0);
             }
 
-            _showToast('Đã nạp ${parseResult.plots.length} Lô và ${parseResult.pois.length} Mốc từ GPKG "$fileName"!');
+            final overlayText = parseResult.overlays.isNotEmpty ? ' kèm ${parseResult.overlays.length} Bản đồ ảnh nắn tọa độ' : '';
+            _showToast('Đã nạp ${parseResult.plots.length} Lô, ${parseResult.pois.length} Mốc$overlayText từ GPKG "$fileName"!');
           } else {
             _showToast(parseResult.info.isNotEmpty
                 ? parseResult.info
@@ -3310,6 +3319,19 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 tileProvider: CancellableNetworkTileProvider(),
               ),
 
+              // Lớp Phủ Bản Đồ Ảnh Địa Lý / Sơ Đồ Quy Hoạch Nắn Tọa Độ (GeoPackage Raster Tiles)
+              if (_rasterOverlays.isNotEmpty)
+                OverlayImageLayer(
+                  overlayImages: _rasterOverlays
+                      .where((o) => o.isVisible && !_hiddenGroups.contains(o.groupName) && File(o.imagePath).existsSync())
+                      .map((o) => OverlayImage(
+                            bounds: o.bounds,
+                            imageProvider: FileImage(File(o.imagePath)),
+                            opacity: o.opacity,
+                          ))
+                      .toList(),
+                ),
+
               // Vòng tròn bán kính sai số GPS (Accuracy circle)
               if (_currentGpsPosition != null && _rawPosition != null)
                 CircleLayer(
@@ -4765,11 +4787,14 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                     ? plotsInGroup.first.color
                                     : (poisInGroup.isNotEmpty ? poisInGroup.first.color : const Color(0xFF2E7D32));
 
+                                final overlaysInGroup = _rasterOverlays.where((o) => o.groupName == gName).toList();
                                 String groupSub = '';
-                                if (plotsInGroup.isNotEmpty && poisInGroup.isNotEmpty) {
+                                if (overlaysInGroup.isNotEmpty) {
+                                  groupSub = 'Bản đồ ảnh nắn tọa độ • ${overlaysInGroup.length} lớp ảnh';
+                                } else if (plotsInGroup.isNotEmpty && poisInGroup.isNotEmpty) {
                                   groupSub = '${plotsInGroup.length} Lô • ${totalHa.toStringAsFixed(1)} ha • ${poisInGroup.length} Mốc';
                                 } else if (plotsInGroup.isNotEmpty) {
-                                  groupSub = ' Lô •  ha';
+                                  groupSub = '${plotsInGroup.length} Lô • ${totalHa.toStringAsFixed(1)} ha';
                                 } else {
                                   groupSub = '${poisInGroup.length} Điểm mốc ranh giới';
                                 }
@@ -4972,6 +4997,42 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                               groupSub,
                                               style: TextStyle(fontSize: 11, color: isHidden ? Colors.grey : Colors.grey.shade600),
                                             ),
+                                            if (overlaysInGroup.isNotEmpty) ...[
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.opacity, size: 13, color: Colors.blueGrey),
+                                                  const SizedBox(width: 3),
+                                                  Text(
+                                                    '${(overlaysInGroup.first.opacity * 100).toInt()}%',
+                                                    style: const TextStyle(fontSize: 10, color: Colors.blueGrey, fontWeight: FontWeight.bold),
+                                                  ),
+                                                  Expanded(
+                                                    child: SliderTheme(
+                                                      data: SliderTheme.of(context).copyWith(
+                                                        trackHeight: 2,
+                                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                                                      ),
+                                                      child: Slider(
+                                                        value: overlaysInGroup.first.opacity,
+                                                        min: 0.1,
+                                                        max: 1.0,
+                                                        activeColor: const Color(0xFF2E7D32),
+                                                        onChanged: (val) {
+                                                          setState(() {
+                                                            for (var o in overlaysInGroup) {
+                                                              o.opacity = val;
+                                                            }
+                                                          });
+                                                          setSheetState(() {});
+                                                          _savePersistentData();
+                                                        },
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
                                           ],
                                         ),
                                       ),
@@ -5010,7 +5071,18 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                         tooltip: 'Đưa bản đồ tới nhóm này',
                                         onPressed: () {
                                           Navigator.pop(ctx);
-                                          if (plotsInGroup.isNotEmpty) {
+                                          final overlaysInGroup = _rasterOverlays.where((o) => o.groupName == gName).toList();
+                                          if (overlaysInGroup.isNotEmpty) {
+                                            if (isHidden) {
+                                              setState(() {
+                                                _hiddenGroups.remove(gName);
+                                                _invalidatePlotCache();
+                                              });
+                                              _savePersistentData();
+                                            }
+                                            _mapController.move(overlaysInGroup.first.center, 13.0);
+                                            _showToast('Đã di chuyển tới Bản đồ ảnh "$gName"');
+                                          } else if (plotsInGroup.isNotEmpty) {
                                             if (isHidden) {
                                               setState(() {
                                                 _hiddenGroups.remove(gName);
@@ -5057,6 +5129,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                                     setState(() {
                                                       _plots.removeWhere((p) => p.groupName == gName);
                                                       _poiList.removeWhere((p) => p.groupName == gName);
+                                                      _rasterOverlays.removeWhere((o) => o.groupName == gName);
                                                       _hiddenGroups.remove(gName);
                                                       _datasetGroupOrder.remove(gName);
                                                       _invalidatePlotCache();
