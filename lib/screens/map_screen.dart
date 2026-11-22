@@ -30,6 +30,8 @@ import '../models/user_profile.dart';
 import 'login_screen.dart';
 import 'pdf_viewer_screen.dart';
 import '../services/device_license_manager.dart';
+import '../services/persistent_offline_tile_provider.dart';
+import '../services/app_update_service.dart';
 
 enum MapBaseLayer { googleHybrid, googleSatellite, esriSatellite, esriClarity, openTopo, openStreetMap }
 enum AppInteractionMode { normal, measureDistance, measureArea, digitizePlot, editVertex, gpsSurveyWalk }
@@ -352,6 +354,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
   // Đồng hồ thực tế & Nhiệt độ thời gian thực
   final ValueNotifier<DateTime> _clockNotifier = ValueNotifier(DateTime.now());
+  final StreamController<void> _tileResetController = StreamController<void>.broadcast();
   Timer? _clockTimer;
   Timer? _licenseCheckTimer;
   String _currentTemperature = '--';
@@ -381,6 +384,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestAndGetRealLocation();
       _checkRemoteBlockStatusPeriodically();
+      AppUpdateService.checkForUpdate(context, silent: true);
     });
 
     // Định kỳ kiểm tra trạng thái khóa từ xa từ Quản lý (mỗi 5 giây khi có mạng)
@@ -539,6 +543,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     _clockTimer?.cancel();
     _licenseCheckTimer?.cancel();
     _clockNotifier.dispose();
+    _tileResetController.close();
     _positionStreamSub?.cancel();
     super.dispose();
   }
@@ -636,13 +641,13 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   String get _tileUrl {
     switch (_baseLayer) {
       case MapBaseLayer.googleHybrid:
-        return 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&t=$_tileCacheBuster';
+        return 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
       case MapBaseLayer.googleSatellite:
-        return 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}&t=$_tileCacheBuster';
+        return 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
       case MapBaseLayer.esriSatellite:
-        return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?t=$_tileCacheBuster';
+        return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
       case MapBaseLayer.esriClarity:
-        return 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?t=$_tileCacheBuster';
+        return 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
       case MapBaseLayer.openTopo:
         return 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
       case MapBaseLayer.openStreetMap:
@@ -651,10 +656,165 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   void _refreshSatelliteTiles() {
-    setState(() {
-      _tileCacheBuster = DateTime.now().millisecondsSinceEpoch;
-    });
-    _showToast('Đã làm mới bộ đệm! Đang kết nối máy chủ để tải ảnh vệ tinh mới nhất.');
+    _tileResetController.add(null);
+    _showToast('Đang kết nối và tải lại các gạch bản đồ hiển thị...');
+  }
+
+  void _showDownloadOfflineMapDialog() {
+    final camera = _mapController.camera;
+    final bounds = camera.visibleBounds;
+    final baseLayerName = _baseLayer.name;
+    final urlTemplate = _tileUrl;
+
+    int currentZ = camera.zoom.round();
+    int minZ = (currentZ - 1).clamp(11, 15);
+    int maxZ = (currentZ + 2).clamp(13, 17);
+    int totalTiles = PersistentOfflineTileProvider.countTilesForBounds(bounds, minZ, maxZ);
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        bool isDownloading = false;
+        double progress = 0.0;
+        int currentDownloaded = 0;
+        String statusText = 'Sẵn sàng tải...';
+        StreamSubscription<double>? sub;
+
+        return StatefulBuilder(
+          builder: (dialogCtx, setDlgState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFFFAFAFA),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.download_for_offline_rounded, color: Color(0xFF1B5E20), size: 26),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'TẢI BẢN ĐỒ NGOẠI TUYẾN',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1B5E20)),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Ứng dụng sẽ tải và lưu toàn bộ gạch bản đồ vệ tinh của khu vực đang xem vào bộ nhớ máy, đảm bảo khi đi vào rừng sâu không có 4G/WiFi vẫn hiển thị sắc nét.',
+                    style: TextStyle(fontSize: 12.5, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Khu vực:', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                            Text('${bounds.south.toStringAsFixed(3)}, ${bounds.west.toStringAsFixed(3)}',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Mức phóng đại (Zoom):', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                            Text('$minZ -> $maxZ',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20))),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Số lượng gạch bản đồ:', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                            Text('$totalTiles gạch (~${(totalTiles * 0.025).toStringAsFixed(1)} MB)',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20))),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isDownloading) ...[
+                    const SizedBox(height: 14),
+                    LinearProgressIndicator(
+                      value: progress > 0 ? progress : null,
+                      color: const Color(0xFF1B5E20),
+                      backgroundColor: Colors.grey.shade300,
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(statusText, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                        Text('${(progress * 100).toStringAsFixed(0)}%',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20))),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                if (!isDownloading)
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    child: const Text('Đóng'),
+                  ),
+                if (!isDownloading)
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1B5E20),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.download_rounded, size: 18),
+                    label: const Text('Bắt đầu tải về máy'),
+                    onPressed: () {
+                      setDlgState(() {
+                        isDownloading = true;
+                        statusText = 'Đang tải gạch bản đồ...';
+                      });
+
+                      sub = PersistentOfflineTileProvider.downloadRegion(
+                        bounds: bounds,
+                        minZoom: minZ,
+                        maxZoom: maxZ,
+                        urlTemplate: urlTemplate,
+                        baseLayerKey: baseLayerName,
+                        onProgress: (d, t) {
+                          currentDownloaded = d;
+                          setDlgState(() {
+                            progress = d / t;
+                            statusText = 'Đang tải: $d / $t gạch';
+                          });
+                        },
+                      ).listen(null);
+
+                      sub?.onDone(() {
+                        setDlgState(() {
+                          isDownloading = false;
+                          statusText = 'Đã tải hoàn tất!';
+                        });
+                        Navigator.pop(dialogCtx);
+                        _showToast(
+                            'Đã lưu thành công $currentDownloaded gạch bản đồ vào máy! Bạn có thể dùng hoàn toàn ngoại tuyến.');
+                      });
+                    },
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   // -------------------------------------------------------------
@@ -3678,7 +3838,11 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               TileLayer(
                 urlTemplate: _tileUrl,
                 userAgentPackageName: 'com.vdmgis.vn',
-                tileProvider: CancellableNetworkTileProvider(),
+                tileProvider: PersistentOfflineTileProvider(
+                  baseLayerKey: _baseLayer.name,
+                ),
+                evictErrorTileStrategy: EvictErrorTileStrategy.notVisible,
+                reset: _tileResetController.stream,
               ),
 
               // Lớp Phủ Bản Đồ Ảnh Địa Lý / Sơ Đồ Quy Hoạch Nắn Tọa Độ (GeoPackage Raster Tiles)
@@ -5738,23 +5902,67 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         ],
                       ),
                       const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1B5E20),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.refresh, size: 18),
+                              label: const Text(
+                                'Làm mới gạch',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                              onPressed: () {
+                                _refreshSatelliteTiles();
+                                Navigator.pop(ctx);
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF00796B),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.download_for_offline_rounded, size: 18),
+                              label: const Text(
+                                'Tải Offline',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                _showDownloadOfflineMapDialog();
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                       SizedBox(
                         width: double.infinity,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1B5E20),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF1B5E20),
+                            side: const BorderSide(color: Color(0xFF2E7D32)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          icon: const Icon(Icons.refresh, size: 20),
+                          icon: const Icon(Icons.system_update_rounded, size: 18),
                           label: const Text(
-                            'Cập nhật / Tải ảnh vệ tinh mới nhất (Xóa cache)',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            'Kiểm tra bản cập nhật mới (Tự động tải & cài đặt)',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                           ),
                           onPressed: () {
-                            _refreshSatelliteTiles();
                             Navigator.pop(ctx);
+                            AppUpdateService.checkForUpdate(context, silent: false);
                           },
                         ),
                       ),
