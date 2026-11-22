@@ -45,14 +45,61 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   final MapController _mapController = MapController();
 
-  bool get _isReadOnly => widget.isGuestReadOnly || !DeviceLicenseManager.isActivatedSync;
+  bool get _isReadOnly => widget.isGuestReadOnly || !DeviceLicenseManager.isActivatedSync || DeviceLicenseManager.isBlockedSync;
 
   bool _checkCanPerformAction(String actionName) {
     if (_isReadOnly) {
-      _showGuestRestrictedDialog(actionName);
+      if (DeviceLicenseManager.isBlockedSync) {
+        _showDeviceBlockedDialog();
+      } else {
+        _showGuestRestrictedDialog(actionName);
+      }
       return false;
     }
     return true;
+  }
+
+  void _showDeviceBlockedDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.block, color: Colors.redAccent, size: 28),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'THIẾT BỊ ĐÃ BỊ KHÓA',
+                style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Mã cài đặt của thiết bị này đã bị Quản trị viên khóa quyền sử dụng trên hệ thống Quản lý.\n\nMọi thao tác nhập và sửa dữ liệu đã bị chặn.',
+          style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
+            },
+            child: const Text('Về màn hình đăng nhập', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showGuestRestrictedDialog(String actionName) {
@@ -336,8 +383,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       _checkRemoteBlockStatusPeriodically();
     });
 
-    // Định kỳ kiểm tra trạng thái khóa từ xa từ Quản lý (mỗi 25 giây khi có mạng)
-    _licenseCheckTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+    // Định kỳ kiểm tra trạng thái khóa từ xa từ Quản lý (mỗi 5 giây khi có mạng)
+    _licenseCheckTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _checkRemoteBlockStatusPeriodically();
     });
   }
@@ -1591,6 +1638,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
   // HỘP THOẠI DÁN BẢNG TỌA ĐỘ VN-2000 (TỪ BẢN ĐỒ PDF / SỔ ĐỎ)
   void _openPasteVn2000Dialog() {
+    if (!_checkCanPerformAction('Dán tọa độ VN-2000')) return;
     final textCtrl = TextEditingController(
       // Mẫu sẵn 34 đỉnh từ ảnh bản đồ của người dùng nếu trống
       text: '''1 627761 1477076
@@ -2444,6 +2492,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   void _openAddPoiDialog({LatLng? position}) {
+    if (!_checkCanPerformAction('Đánh dấu Điểm nóng/Vi phạm')) return;
     LatLng curPos = position ?? _currentGpsPosition ?? const LatLng(11.3420, 107.0390);
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();

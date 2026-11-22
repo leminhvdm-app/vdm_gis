@@ -34,12 +34,67 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _loadLicenseInfo() async {
     final code = await DeviceLicenseManager.getInstallationCode();
-    final activated = await DeviceLicenseManager.isDeviceActivated();
+    var activated = await DeviceLicenseManager.isDeviceActivated();
     if (mounted) {
       setState(() {
         _installCode = code;
         _isActivated = activated;
       });
+    }
+
+    // Tự động kiểm tra trực tuyến trên Firebase nếu chưa kích hoạt
+    if (!activated) {
+      final remoteActivated = await DeviceLicenseManager.checkRemoteActivationStatus();
+      if (remoteActivated && mounted) {
+        setState(() {
+          _isActivated = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _checkRemoteActivationManual() async {
+    setState(() => _isLoading = true);
+    final scaffold = ScaffoldMessenger.of(context);
+    try {
+      final isBlocked = await DeviceLicenseManager.checkRemoteBlockStatus();
+      if (isBlocked) {
+        if (mounted) {
+          scaffold.showSnackBar(
+            const SnackBar(
+              content: Text('Thiết bị này đang bị Quản lý khóa quyền sử dụng!'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
+
+      final activated = await DeviceLicenseManager.checkRemoteActivationStatus();
+      if (mounted) {
+        if (activated) {
+          setState(() {
+            _isActivated = true;
+          });
+          scaffold.showSnackBar(
+            const SnackBar(
+              content: Text('✓ Tuyệt vời! Thiết bị đã được Quản trị viên duyệt kích hoạt.'),
+              backgroundColor: Color(0xFF1B5E20),
+            ),
+          );
+        } else {
+          scaffold.showSnackBar(
+            const SnackBar(
+              content: Text('Chưa tìm thấy lệnh duyệt trên hệ thống. Vui lòng bấm "Duyệt kích hoạt" trên App Quản lý hoặc nhập mã kích hoạt.'),
+              backgroundColor: Colors.orangeAccent,
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -78,84 +133,119 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Kiểm tra xem thiết bị này có đang bị Quản lý khóa quyền sử dụng không
     setState(() => _isLoading = true);
-    final isBlocked = await DeviceLicenseManager.checkRemoteBlockStatus();
-    if (isBlocked) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
-              children: [
-                Icon(Icons.block, color: Colors.red, size: 26),
-                SizedBox(width: 10),
-                Text('Thiết bị bị khóa', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+
+    try {
+      // 1. Kiểm tra xem thiết bị này có đang bị Quản lý khóa quyền sử dụng không
+      final isBlocked = await DeviceLicenseManager.checkRemoteBlockStatus();
+      if (isBlocked) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 26),
+                  SizedBox(width: 10),
+                  Text('Thiết bị bị khóa', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Text(
+                'Mã cài đặt "$_installCode" của thiết bị này đã bị Quản lý KHÓA QUYỀN SỬ DỤNG.\n\nBạn không thể tiếp tục đăng nhập. Vui lòng liên hệ Quản trị viên để được mở khóa.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
               ],
             ),
-            content: Text(
-              'Mã cài đặt "$_installCode" của thiết bị này đã bị Quản lý KHÓA QUYỀN SỬ DỤNG.\n\nBạn không thể tiếp tục đăng nhập. Vui lòng liên hệ Quản trị viên để được mở khóa.',
-              style: const TextStyle(fontSize: 13),
+          );
+        }
+        return;
+      }
+
+      // 2. Nếu máy chưa kích hoạt cục bộ, tự động kiểm tra xem Quản lý đã duyệt kích hoạt trên Firebase chưa
+      if (!_isActivated) {
+        final remoteActivated = await DeviceLicenseManager.checkRemoteActivationStatus();
+        if (remoteActivated) {
+          _isActivated = true;
+        }
+      }
+
+      // 3. Nếu vẫn chưa kích hoạt, kiểm tra mã kích hoạt người dùng nhập
+      if (!_isActivated) {
+        final enteredKey = _activationCodeController.text.trim();
+        if (enteredKey.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Vui lòng nhập Mã kích hoạt để đăng nhập vào ứng dụng!'),
+              backgroundColor: Colors.redAccent,
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
-            ],
-          ),
-        );
+          );
+          return;
+        }
+
+        bool isValid = DeviceLicenseManager.verifyActivationKey(_installCode, enteredKey);
+        // Nếu người dùng nhập nhầm Mã cài đặt thay vì Mã kích hoạt
+        if (!isValid && (enteredKey.toUpperCase() == _installCode.toUpperCase() ||
+            enteredKey.toUpperCase() == _installCode.replaceAll('VDM-', '').toUpperCase())) {
+          final remoteAct = await DeviceLicenseManager.checkRemoteActivationStatus();
+          if (remoteAct) {
+            isValid = true;
+          }
+        }
+
+        if (!isValid) {
+          final expectedKey = DeviceLicenseManager.generateActivationKey(_installCode);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Mã kích hoạt không đúng!\nMã kích hoạt gồm 8 số của máy này là: $expectedKey (Xem trên App Quản lý)'),
+              backgroundColor: Colors.redAccent,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          return;
+        }
+
+        // Kích hoạt máy thành công
+        final keyToSave = isValid && !enteredKey.startsWith('VDM-')
+            ? enteredKey
+            : DeviceLicenseManager.generateActivationKey(_installCode);
+        await DeviceLicenseManager.activateDevice(keyToSave);
+        _isActivated = true;
       }
-      return;
-    }
 
-    // Bắt buộc phải có mã kích hoạt nếu máy chưa được kích hoạt
-    if (!_isActivated) {
-      final enteredKey = _activationCodeController.text.trim();
-      if (enteredKey.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vui lòng nhập Mã kích hoạt để đăng nhập vào ứng dụng!'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
-      }
-
-      final isValid = DeviceLicenseManager.verifyActivationKey(_installCode, enteredKey);
-      if (!isValid) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Mã kích hoạt không chính xác cho thiết bị này! Vui lòng liên hệ Quản lý.'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
-      }
-
-      // Kích hoạt máy thành công
-      await DeviceLicenseManager.activateDevice(enteredKey);
-      _isActivated = true;
-    }
-
-    setState(() => _isLoading = true);
-    final profile = UserProfile(
-      fullName: name,
-      company: company,
-      unit: unit,
-    );
-    await profile.save();
-    await UserSessionTracker().updateUserProfile(profile);
-
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (widget.isEditing) {
-      Navigator.pop(context, true);
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const MapScreen(isGuestReadOnly: false)),
+      final profile = UserProfile(
+        fullName: name,
+        company: company,
+        unit: unit,
       );
+      await profile.save();
+      await UserSessionTracker().updateUserProfile(profile);
+
+      if (!mounted) return;
+
+      if (widget.isEditing) {
+        Navigator.pop(context, true);
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MapScreen(isGuestReadOnly: false)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Đã xảy ra lỗi: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -435,7 +525,24 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 4),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: const Color(0xFF1B5E20),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  icon: const Icon(Icons.sync_rounded, size: 16),
+                                  label: const Text(
+                                    'Kiểm tra duyệt từ App Quản lý',
+                                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                                  ),
+                                  onPressed: _isLoading ? null : _checkRemoteActivationManual,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
                             ],
 
                             // 1. Họ và Tên
@@ -641,9 +748,18 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Phát triển bởi: Lê Văn Minh',
+                              'Phát triển bởi: Lê Minh',
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white.withValues(alpha: 0.95),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Liên hệ: leminh.vdm@gmail.com',
+                              style: TextStyle(
+                                fontSize: 10.5,
                                 color: Colors.white.withValues(alpha: 0.85),
                               ),
                             ),
