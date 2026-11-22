@@ -642,9 +642,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   String get _tileUrl {
     switch (_baseLayer) {
       case MapBaseLayer.googleHybrid:
-        return 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
+        return 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
       case MapBaseLayer.googleSatellite:
-        return 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
+        return 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
       case MapBaseLayer.esriSatellite:
         return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
       case MapBaseLayer.esriClarity:
@@ -668,8 +668,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     final urlTemplate = _tileUrl;
 
     int currentZ = camera.zoom.round();
-    int minZ = (currentZ - 1).clamp(11, 15);
-    int maxZ = (currentZ + 2).clamp(13, 17);
+    int minZ = 8; // Tải từ mức zoom nhỏ toàn cảnh để khi zoom xa không bao giờ bị màu trắng
+    int maxZ = (currentZ + 1).clamp(14, 16);
     int totalTiles = PersistentOfflineTileProvider.countTilesForBounds(bounds, minZ, maxZ);
 
     showDialog(
@@ -799,14 +799,30 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         },
                       ).listen(null);
 
-                      sub?.onDone(() {
+                      sub?.onDone(() async {
                         setDlgState(() {
                           isDownloading = false;
                           statusText = 'Đã tải hoàn tất!';
                         });
-                        Navigator.pop(dialogCtx);
+                        // Tự động lưu khu vực này làm Bản đồ Ngoại tuyến Mặc định của máy
+                        await PersistentOfflineTileProvider.saveDefaultRegion(
+                          bounds: bounds,
+                          name: 'Khu vực làm việc mặc định',
+                        );
+                        // Nạp thêm ngầm các mức zoom xa z=6..8 nếu cần
+                        PersistentOfflineTileProvider.preloadOverviewTiles(
+                          bounds: bounds,
+                          urlTemplate: urlTemplate,
+                          baseLayerKey: baseLayerName,
+                          minZoom: 6,
+                          maxZoom: 8,
+                        );
+
+                        if (dialogCtx.mounted) {
+                          Navigator.pop(dialogCtx);
+                        }
                         _showToast(
-                            'Đã lưu thành công $currentDownloaded gạch bản đồ vào máy! Bạn có thể dùng hoàn toàn ngoại tuyến.');
+                            'Đã lưu khu vực này làm Bản đồ Ngoại tuyến Mặc định! Dù zoom to hay zoom nhỏ, khi mất mạng bản đồ vẫn hiển thị 100%.');
                       });
                     },
                   ),
@@ -3802,6 +3818,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         );
       },
       child: Scaffold(
+        backgroundColor: const Color(0xFF1E2820),
         extendBody: true,
         extendBodyBehindAppBar: true,
         body: Stack(
@@ -3838,7 +3855,13 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
             children: [
               TileLayer(
                 urlTemplate: _tileUrl,
+                subdomains: const ['0', '1', '2', '3'],
+                fallbackUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 userAgentPackageName: 'com.vdmgis.vn',
+                minZoom: 3.0,
+                maxZoom: 19.0,
+                panBuffer: 1,
+                keepBuffer: 3,
                 tileProvider: PersistentOfflineTileProvider(
                   baseLayerKey: _baseLayer.name,
                 ),
