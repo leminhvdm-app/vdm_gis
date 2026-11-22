@@ -29,12 +29,14 @@ import '../services/user_session_tracker.dart';
 import '../models/user_profile.dart';
 import 'login_screen.dart';
 import 'pdf_viewer_screen.dart';
+import '../services/device_license_manager.dart';
 
 enum MapBaseLayer { googleHybrid, googleSatellite, esriSatellite, esriClarity, openTopo, openStreetMap }
 enum AppInteractionMode { normal, measureDistance, measureArea, digitizePlot, editVertex, gpsSurveyWalk }
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  final bool isGuestReadOnly;
+  const MapScreen({super.key, this.isGuestReadOnly = false});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -42,6 +44,68 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   final MapController _mapController = MapController();
+
+  bool get _isReadOnly => widget.isGuestReadOnly || !DeviceLicenseManager.isActivatedSync;
+
+  bool _checkCanPerformAction(String actionName) {
+    if (_isReadOnly) {
+      _showGuestRestrictedDialog(actionName);
+      return false;
+    }
+    return true;
+  }
+
+  void _showGuestRestrictedDialog(String actionName) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.lock_person_rounded, color: Colors.orange, size: 26),
+            SizedBox(width: 10),
+            Text('Chế độ Xem thử', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Tính năng "$actionName" bị khóa trong Chế độ Xem thử.',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Bạn chỉ được phép xem giao diện và bản đồ. Vui lòng kích hoạt bản quyền ứng dụng bằng Mã cài đặt của máy để sử dụng đầy đủ các tính năng thực địa.',
+              style: TextStyle(fontSize: 13, color: Colors.black87),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Đóng'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1B5E20),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.vpn_key_rounded, size: 16),
+            label: const Text('Kích hoạt ngay'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   // Dữ liệu GIS
   final List<ForestPlot> _plots = [];
@@ -1105,6 +1169,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   // CHỨC NĂNG NHẬP FILE: KML/KMZ, GEOJSON, GPKG, GPX, TIFF
   // -------------------------------------------------------------
   void _showImportMenu() {
+    if (!_checkCanPerformAction('Nạp tệp bản đồ')) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2237,6 +2302,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   void _startEditingPlot(ForestPlot plot) {
+    if (!_checkCanPerformAction('Nắn sửa đỉnh Lô')) return;
     setState(() {
       _editingPlot = plot;
       _mode = AppInteractionMode.editVertex;
@@ -3889,6 +3955,58 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               ),
             ),
 
+          // BANNER CHẾ ĐỘ XEM THỬ (KHI DÙNG NGAY / CHƯA KÍCH HOẠT BẢN QUYỀN)
+          if (_isReadOnly)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Container(
+                  margin: const EdgeInsets.fromLTRB(10, 2, 10, 0),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE65100),
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lock_rounded, color: Colors.white, size: 16),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'CHẾ ĐỘ XEM THỬ • KHÔNG ĐƯỢC THAO TÁC',
+                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.3),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => const LoginScreen()),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'KÍCH HOẠT MÃ MÁY',
+                            style: TextStyle(color: Color(0xFFE65100), fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
           // BIỂU TƯỢNG NHỎ PHÍA TRÊN GÓC TRÁI MÀN HÌNH (Hồ sơ cán bộ & Menu Nạp file / Quản lý lớp)
           SafeArea(
             child: Align(
@@ -4340,6 +4458,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   void _showSurveyModeSelectionSheet() {
+    if (!_checkCanPerformAction('Đo đạc & Số hóa')) return;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -6633,6 +6752,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   void _showCloudSyncDialog() async {
+    if (!_checkCanPerformAction('Đồng bộ đám mây Firebase')) return;
     final syncService = FirebaseSyncService();
     await syncService.loadConfig();
     final config = syncService.config;

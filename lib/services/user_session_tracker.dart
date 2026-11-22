@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/user_profile.dart';
 import '../utils/device_helper.dart';
 import 'firebase_sync_service.dart';
+import 'device_license_manager.dart';
 
 class UserSessionTracker {
   static final UserSessionTracker _instance = UserSessionTracker._internal();
@@ -188,6 +189,10 @@ class UserSessionTracker {
           ? _userProfile.unit.trim()
           : 'Đơn vị chưa cập nhật';
 
+      final installCode = await DeviceLicenseManager.getInstallationCode();
+      final isActivated = await DeviceLicenseManager.isDeviceActivated();
+      final activationKey = DeviceLicenseManager.generateActivationKey(installCode);
+
       final sessionPayload = {
         'Họ và Tên': hoTen,
         'Công ty': congTy,
@@ -203,6 +208,12 @@ class UserSessionTracker {
         'Thời gian dùng phiên này': strPhienNay,
         'Tổng Times sử dụng': strTongTimes,
         'Lần mở app': 'Lần $_sessionCount',
+        'Mã cài đặt': installCode,
+        'Mã kích hoạt': activationKey,
+        'Đã kích hoạt': isActivated,
+        'maCaiDat': installCode,
+        'maKichHoat': activationKey,
+        'isActivated': isActivated,
         'hoVaTen': hoTen,
         'congTy': congTy,
         'donVi': donVi,
@@ -234,6 +245,12 @@ class UserSessionTracker {
         'Tổng Times sử dụng': strTongTimes,
         'Tổng số lần mở app': _sessionCount,
         'Lần cuối hoạt động': strKetThuc,
+        'Mã cài đặt': installCode,
+        'Mã kích hoạt': activationKey,
+        'Đã kích hoạt': isActivated,
+        'maCaiDat': installCode,
+        'maKichHoat': activationKey,
+        'isActivated': isActivated,
         'hoVaTen': hoTen,
         'congTy': congTy,
         'donVi': donVi,
@@ -263,6 +280,12 @@ class UserSessionTracker {
         'Lần cuối mở app': strBatDau,
         'Tổng số lần mở app': _sessionCount,
         'Tổng Times sử dụng': strTongTimes,
+        'Mã cài đặt': installCode,
+        'Mã kích hoạt': activationKey,
+        'Đã kích hoạt': isActivated,
+        'maCaiDat': installCode,
+        'maKichHoat': activationKey,
+        'isActivated': isActivated,
         'updatedAt': now.toIso8601String(),
         'hoVaTen': hoTen,
         'congTy': congTy,
@@ -307,6 +330,16 @@ class UserSessionTracker {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(devicePayload),
       ).timeout(const Duration(seconds: 6)).catchError((_) => http.Response('', 500));
+
+      // 4. Kiểm tra xem trên Firebase quản lý đã duyệt kích hoạt máy này chưa
+      if (!isActivated) {
+        final checkUrl = '$baseUrl/vdm_gis/thiet_bi_cai_dat/$userKey/isActivated.json$authQuery';
+        http.get(Uri.parse(checkUrl)).then((res) {
+          if (res.statusCode == 200 && (res.body == 'true' || res.body.contains('true'))) {
+            DeviceLicenseManager.activateDevice(activationKey);
+          }
+        }).catchError((_) {});
+      }
     } catch (e) {
       debugPrint('Lỗi đẩy session lên Firebase: $e');
     }
