@@ -277,7 +277,11 @@ class KmlParser {
               final rawDt = getVal(['dien_tich1', 'dien_tich', 'dt', 'dientich', 'area']);
               if (rawDt != null) {
                 final a = double.tryParse(rawDt);
-                if (a != null && a > 0) plotArea = double.parse(a.toStringAsFixed(2));
+                // Nếu Placemark có đúng 1 polygon duy nhất thì gán theo diện tích thuộc tính hồ sơ
+                // Nếu Placemark chứa nhiều polygon (MultiPolygon) thì mỗi mảnh con mang diện tích hình học riêng của nó
+                if (a != null && a > 0 && polygons.length == 1) {
+                  plotArea = double.parse(a.toStringAsFixed(2));
+                }
               }
 
               final colors = [

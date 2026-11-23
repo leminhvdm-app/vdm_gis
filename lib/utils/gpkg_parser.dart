@@ -148,12 +148,15 @@ class GpkgParser {
               if (geom.length >= 3) {
                 // Polygon Lô
                 final calcArea = GisCalculator.calculateAreaInHectares(geom);
+                final pieceArea = (geometries.length == 1 && dienTich != null && (calcArea - dienTich).abs() < 0.5)
+                    ? dienTich
+                    : double.parse(calcArea.toStringAsFixed(2));
                 plots.add(ForestPlot(
                   id: 'GPKG_${DateTime.now().millisecondsSinceEpoch}_$plotIndex',
                   tieuKhu: tieuKhu,
                   khoanh: khoanh,
                   lo: lo,
-                  dienTich: dienTich ?? double.parse(calcArea.toStringAsFixed(2)),
+                  dienTich: pieceArea,
                   chuRung: chuRung,
                   trangThaiRung: trangThai,
                   loaiCay: loaiCay,

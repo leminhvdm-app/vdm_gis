@@ -184,23 +184,42 @@ class GisCalculator {
     if (plotGroup.isEmpty) return 0.0;
     if (plotGroup.length == 1) return plotGroup.first.dienTich;
 
-    final repArea = plotGroup.first.dienTich;
-    // Kiểm tra xem tất cả các mảnh con có cùng thuộc tính diện tích (> 0) không
-    final bool allSameAttr = repArea > 0 && plotGroup.every((p) => (p.dienTich - repArea).abs() < 0.01);
+    final rep = plotGroup.first;
+    final repArea = rep.dienTich;
 
-    // Tính tổng diện tích hình học thực tế từ toạ độ GPS của các mảnh con
+    // 1. Kiểm tra thuộc tính diện tích tổng của cả Lô từ hồ sơ GIS (nếu có)
+    final rawTotal = rep.attributes['dien_tich_tong_lo'] ??
+        rep.attributes['dien_tich1'] ??
+        rep.attributes['dien_tich'] ??
+        rep.attributes['dt'];
+    double? officialLotArea;
+    if (rawTotal != null) {
+      officialLotArea = double.tryParse(rawTotal);
+    }
+
+    // 2. Tính tổng diện tích hình học thực tế từ toạ độ GPS của các mảnh con
     double geometricSum = 0.0;
     for (final p in plotGroup) {
       geometricSum += calculateAreaInHectares(p.boundary);
     }
 
+    // Nếu có diện tích chính thức từ hồ sơ và chênh lệch không quá xa so với diện tích hình học (dưới 15% hoặc 1.5 ha)
+    if (officialLotArea != null && officialLotArea > 0) {
+      if ((officialLotArea - geometricSum).abs() < math.max(1.5, geometricSum * 0.15)) {
+        return officialLotArea;
+      }
+    }
+
+    final sumFold = plotGroup.fold<double>(0.0, (sum, p) => sum + p.dienTich);
+
+    // Nếu tất cả các mảnh con mang cùng 1 thuộc tính diện tích (> 0)
+    final bool allSameAttr = repArea > 0 && plotGroup.every((p) => (p.dienTich - repArea).abs() < 0.01);
     if (allSameAttr) {
       // Khi xuất GIS / KML, thuộc tính dien_tich của cả lô được gán lặp lại cho từng polygon con
       // Vì vậy diện tích cả lô chính là giá trị danh nghĩa repArea
       return repArea;
     }
 
-    final sumFold = plotGroup.fold<double>(0.0, (sum, p) => sum + p.dienTich);
     // Nếu tổng cộng dồn gấp hơn 1.5 lần diện tích hình học, ưu tiên diện tích hình học
     if (geometricSum > 0 && sumFold > geometricSum * 1.5) {
       return geometricSum;

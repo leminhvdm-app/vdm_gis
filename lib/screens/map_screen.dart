@@ -3183,7 +3183,10 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       case 'TEN_LO':
         return plot.lo;
       case 'DIEN_TIC':
-        return '${plot.dienTich} ha';
+        // Luôn hiển thị diện tích thực tế của chính mảnh/polygon này
+        final geomArea = GisCalculator.calculateAreaInHectares(plot.boundary);
+        final displayArea = (geomArea > 0) ? geomArea : plot.dienTich;
+        return '${displayArea.toStringAsFixed(2)} ha';
       case 'CHU_V':
         final perim = GisCalculator.calculateTotalDistanceInMeters(plot.boundary, isClosed: true);
         return '${perim.toStringAsFixed(0)}m';
@@ -3207,7 +3210,13 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       case 'KHÔNG HIỆN':
         return '';
       default:
-        return plot.attributes[fieldKey] ?? plot.attributes[fieldKey.toLowerCase()] ?? '';
+        final keyLower = fieldKey.toLowerCase();
+        if (keyLower == 'dien_tic' || keyLower == 'dien_tich' || keyLower == 'dt' || keyLower == 'dientich') {
+          final geomArea = GisCalculator.calculateAreaInHectares(plot.boundary);
+          final displayArea = (geomArea > 0) ? geomArea : plot.dienTich;
+          return '${displayArea.toStringAsFixed(2)} ha';
+        }
+        return plot.attributes[fieldKey] ?? plot.attributes[keyLower] ?? '';
     }
   }
 
@@ -6900,8 +6909,14 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                               children: [
                                 CircleAvatar(backgroundColor: plot.color, radius: 6),
                                 const SizedBox(width: 6),
-                                Text('${plot.dienTich} ha',
-                                    style: TextStyle(fontWeight: FontWeight.bold, color: plot.color, fontSize: 15)),
+                                Text(
+                                  () {
+                                    final pieceArea = GisCalculator.calculateAreaInHectares(plot.boundary);
+                                    final displayPieceArea = (pieceArea > 0) ? pieceArea : plot.dienTich;
+                                    return '${displayPieceArea.toStringAsFixed(2)} ha';
+                                  }(),
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: plot.color, fontSize: 15),
+                                ),
                                 const SizedBox(width: 4),
                                 const Icon(Icons.color_lens, size: 14, color: Colors.grey),
                               ],
@@ -6912,6 +6927,20 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 12),
                     _buildDetailItem(Icons.folder_shared, 'Nhóm dữ liệu:', plot.groupName),
+                    _buildDetailItem(Icons.square_foot_rounded, 'Diện tích mảnh này:', () {
+                      final pieceArea = GisCalculator.calculateAreaInHectares(plot.boundary);
+                      final displayPieceArea = (pieceArea > 0) ? pieceArea : plot.dienTich;
+                      return '${displayPieceArea.toStringAsFixed(2)} ha (${(displayPieceArea * 10000).toStringAsFixed(0)} m²)';
+                    }()),
+                    () {
+                      final siblingPlots = _plots.where((p) => p.groupName == plot.groupName && p.lo == plot.lo && p.lo.isNotEmpty).toList();
+                      if (siblingPlots.length > 1) {
+                        final totalLotArea = GisCalculator.calculateTotalLotArea(siblingPlots);
+                        final regionCount = GisCalculator.countDisjointRegions(siblingPlots);
+                        return _buildDetailItem(Icons.layers_rounded, 'Tổng cả Lô ($regionCount vùng):', '${totalLotArea.toStringAsFixed(2)} ha');
+                      }
+                      return const SizedBox.shrink();
+                    }(),
                     _buildDetailItem(Icons.nature_people, 'Chủ rừng:', displayChuRung),
                     _buildDetailItem(Icons.forest, 'Trạng thái:', displayTrangThai.isNotEmpty ? displayTrangThai : 'Rừng quy hoạch'),
                     _buildDetailItem(Icons.eco, 'Loài cây / Giống:', displayLoaiCay),
