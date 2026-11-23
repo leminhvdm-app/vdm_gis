@@ -49,8 +49,17 @@ void main() {
     final singleDisplayArea = GisCalculator.getPlotPieceArea(singlePlot, allPlotsInLot: [singlePlot]);
     expect(singleDisplayArea, equals(12.99));
 
-    // Banner đáy của Lô đơn cũng phải lấy đúng 12.99 ha
-    final singleBannerArea = GisCalculator.calculateTotalLotArea([singlePlot]);
-    expect(singleBannerArea, equals(12.99));
+    // Kiểm tra Lô 215
+    final plots215 = result.plots.where((p) => p.lo == '215').toList();
+    print('Lô 215 count: ${plots215.length}');
+    for (var p in plots215) {
+      print('  Lô 215 plot.dienTich: ${p.dienTich}');
+      print('  Lô 215 boundary geom area: ${GisCalculator.calculateAreaInHectares(p.boundary)}');
+      print('  Lô 215 attributes: ${p.attributes}');
+    }
+    final totalArea215 = GisCalculator.calculateTotalLotArea(plots215);
+    print('Lô 215 total lot area: $totalArea215');
+    // Phải lấy đúng diện tích trong dữ liệu hồ sơ (17.33 ha)
+    expect(totalArea215, equals(17.33));
   });
 }

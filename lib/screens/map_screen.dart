@@ -4537,7 +4537,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
-                            'Tổng Lô ${_highlightedPlotName ?? ""} (${_highlightedRegionCount > 0 ? _highlightedRegionCount : _highlightedPlotIds.length} vùng) • Tổng DT: ${_highlightedTotalArea.toStringAsFixed(2)} ha',
+                            'Tổng Lô ${_highlightedPlotName ?? ""} • Tổng DT: ${_highlightedTotalArea.toStringAsFixed(2)} ha',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12.5,
@@ -5530,7 +5530,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Phạm vi tìm kiếm: ${firstLayerName.isNotEmpty ? "Lớp đang mở - $firstLayerName" : "Chưa có lớp nào đang mở"} (${firstLayerPlots.length} vùng • ${groupedByPlot.length} lô)',
+                              'Phạm vi tìm kiếm: ${firstLayerName.isNotEmpty ? "Lớp đang mở - $firstLayerName" : "Chưa có lớp nào đang mở"} (${groupedByPlot.length} lô)',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20)),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -5649,21 +5649,6 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                                 overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
-                                            if (regionCount > 1) ...[
-                                              const SizedBox(width: 6),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(0xFFFFF8E1),
-                                                  borderRadius: BorderRadius.circular(6),
-                                                  border: Border.all(color: const Color(0xFFFFB300), width: 0.8),
-                                                ),
-                                                child: Text(
-                                                  '$regionCount vùng',
-                                                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFFE65100)),
-                                                ),
-                                              ),
-                                            ],
                                           ],
                                         ),
                                       ),
@@ -5757,7 +5742,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                     // Mở thông tin chi tiết lô
                                     _showPlotDetailSheet(rep);
 
-                                    _showToast('Đã bay đến $plotNameDisplay ($regionCount vùng • ${totalArea.toStringAsFixed(2)} ha)!');
+                                    _showToast('Đã bay đến $plotNameDisplay (${totalArea.toStringAsFixed(2)} ha)!');
                                   },
                                 ),
                               );
@@ -6946,8 +6931,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                       final siblingPlots = _plots.where((p) => p.groupName == plot.groupName && p.lo == plot.lo && p.lo.isNotEmpty).toList();
                       if (siblingPlots.length > 1) {
                         final totalLotArea = GisCalculator.calculateTotalLotArea(siblingPlots);
-                        final regionCount = GisCalculator.countDisjointRegions(siblingPlots);
-                        return _buildDetailItem(Icons.layers_rounded, 'Tổng cả Lô ($regionCount vùng):', '${totalLotArea.toStringAsFixed(2)} ha');
+                        return _buildDetailItem(Icons.layers_rounded, 'Tổng cả Lô:', '${totalLotArea.toStringAsFixed(2)} ha');
                       }
                       return const SizedBox.shrink();
                     }(),

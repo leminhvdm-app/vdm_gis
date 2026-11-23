@@ -178,25 +178,44 @@ class GisCalculator {
     return uniqueRoots.length;
   }
 
-  /// Trích xuất diện tích theo hồ sơ gốc (nếu có) từ thuộc tính của Plot
+  /// Trích xuất diện tích theo hồ sơ gốc / dữ liệu gốc (nếu có) từ thuộc tính của Plot
   static double? getOfficialPlotArea(ForestPlot plot) {
-    for (final key in [
-      'dien_tich_ho_so',
-      'dien_tich1',
-      'dientich1',
-      'dien_tich',
-      'dientich',
-      'dien_tic',
-      'dien_tic_1',
-      'dt',
-      'area',
-    ]) {
-      final val = plot.attributes[key];
-      if (val != null && val.trim().isNotEmpty) {
-        final parsed = double.tryParse(val.trim());
-        if (parsed != null && parsed > 0) return parsed;
+    // 1. Quét toàn bộ attributes với key chuẩn hóa (không phân biệt hoa thường, dấu gạch dưới, khoảng trắng)
+    for (final entry in plot.attributes.entries) {
+      final keyClean = entry.key.toLowerCase().replaceAll(RegExp(r'[\s_\-]+'), '');
+      if (keyClean == 'dientich1' ||
+          keyClean == 'dientic1' ||
+          keyClean == 'dientich' ||
+          keyClean == 'dientic' ||
+          keyClean == 'dientichtonglo' ||
+          keyClean == 'dientichhoso' ||
+          keyClean == 'dt' ||
+          keyClean == 'area') {
+        final val = entry.value.trim();
+        if (val.isNotEmpty) {
+          final parsed = double.tryParse(val);
+          if (parsed != null && parsed > 0) {
+            return parsed;
+          }
+        }
       }
     }
+
+    // 2. Nếu có trường Shape_Area / Shape_Are (m2) mà không có trường hecta
+    for (final entry in plot.attributes.entries) {
+      final keyClean = entry.key.toLowerCase().replaceAll(RegExp(r'[\s_\-]+'), '');
+      if (keyClean == 'shapearea' || keyClean == 'shapeare') {
+        final val = entry.value.trim();
+        if (val.isNotEmpty) {
+          final parsed = double.tryParse(val);
+          if (parsed != null && parsed > 100) {
+            return double.parse((parsed / 10000.0).toStringAsFixed(2));
+          }
+        }
+      }
+    }
+
+    // 3. plot.dienTich nếu đã có sẵn > 0
     if (plot.dienTich > 0) return plot.dienTich;
     return null;
   }
@@ -239,60 +258,24 @@ class GisCalculator {
     return geom > 0 ? geom : (plot.dienTich > 0 ? plot.dienTich : 0.0);
   }
 
-  /// Tính diện tích chuẩn xác của toàn bộ Lô
-  /// Tránh bị cộng dồn nhân gấp N lần khi tất cả các mảnh con mang cùng 1 thuộc tính diện tích của cả Lô
+  /// Tính diện tích chuẩn xác của toàn bộ Lô:
+  /// Ưu tiên 100% diện tích có trong dữ liệu gốc của Lô (hồ sơ GIS / KML / KMZ / Shapefile)
   static double calculateTotalLotArea(List<ForestPlot> plotGroup) {
     if (plotGroup.isEmpty) return 0.0;
-    if (plotGroup.length == 1) {
-      final p = plotGroup.first;
+
+    // 1. Tìm diện tích chính thức có trong dữ liệu của bất kỳ plot nào thuộc Lô này
+    for (final p in plotGroup) {
       final official = getOfficialPlotArea(p);
-      if (official != null && official > 0) return official;
-      return calculateAreaInHectares(p.boundary);
+      if (official != null && official > 0) {
+        return official;
+      }
     }
 
-    final rep = plotGroup.first;
-    final officialRep = getOfficialPlotArea(rep);
-
-    // 1. Kiểm tra thuộc tính diện tích tổng của cả Lô từ hồ sơ GIS (nếu có)
-    final rawTotal = rep.attributes['dien_tich_tong_lo'] ??
-        rep.attributes['dien_tich1'] ??
-        rep.attributes['dientich1'] ??
-        rep.attributes['dien_tich'] ??
-        rep.attributes['dientich'] ??
-        rep.attributes['dt'];
-    double? officialLotArea;
-    if (rawTotal != null) {
-      officialLotArea = double.tryParse(rawTotal);
-    }
-    officialLotArea ??= officialRep;
-
-    // 2. Tính tổng diện tích hình học thực tế từ toạ độ GPS của các mảnh con
+    // 2. Nếu dữ liệu không ghi diện tích chính thức thì mới tính tổng diện tích hình học
     double geometricSum = 0.0;
     for (final p in plotGroup) {
       geometricSum += calculateAreaInHectares(p.boundary);
     }
-
-    // Nếu có diện tích chính thức từ hồ sơ và chênh lệch không quá xa so với diện tích hình học (dưới 15% hoặc 1.5 ha)
-    if (officialLotArea != null && officialLotArea > 0) {
-      if ((officialLotArea - geometricSum).abs() < math.max(1.5, geometricSum * 0.15)) {
-        return officialLotArea;
-      }
-    }
-
-    final sumFold = plotGroup.fold<double>(0.0, (sum, p) => sum + p.dienTich);
-
-    // Nếu tất cả các mảnh con mang cùng 1 thuộc tính diện tích (> 0)
-    final repArea = rep.dienTich;
-    final bool allSameAttr = repArea > 0 && plotGroup.every((p) => (p.dienTich - repArea).abs() < 0.01);
-    if (allSameAttr) {
-      return repArea;
-    }
-
-    // Nếu tổng cộng dồn gấp hơn 1.5 lần diện tích hình học, ưu tiên diện tích hình học
-    if (geometricSum > 0 && sumFold > geometricSum * 1.5) {
-      return geometricSum;
-    }
-
-    return sumFold > 0 ? sumFold : geometricSum;
+    return geometricSum;
   }
 }
