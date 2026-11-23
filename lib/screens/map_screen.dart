@@ -164,6 +164,10 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   int? _selectedVertexIndex;
   bool _isAddingVertexMode = false; // Chế độ thêm đỉnh ranh giới khi nắn sửa
 
+  // Nổi bật Lô khi tìm kiếm (hỗ trợ đa vùng và làm tối các vùng khác)
+  final Set<String> _highlightedPlotIds = {};
+  String? _highlightedPlotName;
+
   // Cấu hình Tô màu & Nhãn nâng cao (Tử số / Mẫu số / Hệ suy LDLR)
   String _labelNumeratorField = 'TEN_LO'; // Dòng trên: TEN_LO, DIEN_TIC, CHU_V, X, Y, LDLR, CTY, NTRUONG
   String _labelDenominatorField = 'DIEN_TIC'; // Dòng dưới: DIEN_TIC, TEN_LO, CHU_V, X, Y, LDLR, LOAI_CAY
@@ -3857,13 +3861,23 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           return;
         }
 
-        // 2. Nếu đang chọn một Lô hoặc POI, bấm back sẽ bỏ chọn trước
+        // 2. Nếu đang làm nổi bật Lô tìm kiếm, bấm back sẽ tắt nổi bật trước
+        if (_highlightedPlotIds.isNotEmpty) {
+          setState(() {
+            _highlightedPlotIds.clear();
+            _highlightedPlotName = null;
+          });
+          _showToast('Đã tắt chế độ nổi bật Lô');
+          return;
+        }
+
+        // 3. Nếu đang chọn một Lô hoặc POI, bấm back sẽ bỏ chọn trước
         if (_selectedPlot != null) {
           setState(() => _selectedPlot = null);
           return;
         }
 
-        // 3. Trở về màn hình đăng nhập theo yêu cầu
+        // 4. Trở về màn hình đăng nhập theo yêu cầu
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -3970,31 +3984,65 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                       shadows: _buildLabelShadows(_labelHasHalo, _labelHaloColor),
                     );
 
+                    final bool isHighlightActive = _highlightedPlotIds.isNotEmpty;
+
                     return rendered.map((plot) {
+                      final isPlotHighlighted = _highlightedPlotIds.contains(plot.id);
                       final isSelected = _selectedPlot?.id == plot.id;
                       final isGpsHere = _plotUnderGps?.id == plot.id;
                       final isEditing = _editingPlot?.id == plot.id;
-                      final shouldShowLabel = allowGeneralLabels || isSelected || isGpsHere;
 
-                      return Polygon(
-                        points: plot.boundary,
-                        color: isEditing
+                      Color fillColor;
+                      Color borderColor;
+                      double strokeWidth;
+                      bool shouldShowLabel;
+
+                      if (isHighlightActive) {
+                        if (isPlotHighlighted) {
+                          // VÙNG ĐƯỢC TÌM KIẾM: Tô màu vàng neon sáng rực rỡ, viền cam đỏ dày 4px
+                          fillColor = const Color(0xFFFFD600).withValues(alpha: 0.75);
+                          borderColor = const Color(0xFFFF3D00);
+                          strokeWidth = 4.0;
+                          shouldShowLabel = true;
+                        } else {
+                          // CÁC VÙNG KHÁC: Làm tối mờ để các vùng của Lô tìm kiếm nổi bật tuyệt đối
+                          fillColor = Colors.black.withValues(alpha: 0.35);
+                          borderColor = Colors.white.withValues(alpha: 0.15);
+                          strokeWidth = 1.0;
+                          shouldShowLabel = false;
+                        }
+                      } else {
+                        fillColor = isEditing
                             ? Colors.purple.withValues(alpha: 0.4)
                             : isSelected
                                 ? Colors.yellow.withValues(alpha: 0.55)
                                 : isGpsHere
                                     ? Colors.greenAccent.withValues(alpha: 0.55)
-                                    : plot.color.withValues(alpha: _plotOpacity),
-                        borderColor: isEditing
+                                    : plot.color.withValues(alpha: _plotOpacity);
+                        borderColor = isEditing
                             ? Colors.purple
                             : isSelected
                                 ? Colors.amber[900]!
                                 : isGpsHere
                                     ? Colors.green[900]!
-                                    : (_polygonBorderColor ?? plot.color),
-                        borderStrokeWidth: isSelected || isGpsHere || isEditing ? 3.5 : 2.0,
+                                    : (_polygonBorderColor ?? plot.color);
+                        strokeWidth = isSelected || isGpsHere || isEditing ? 3.5 : 2.0;
+                        shouldShowLabel = allowGeneralLabels || isSelected || isGpsHere;
+                      }
+
+                      return Polygon(
+                        points: plot.boundary,
+                        color: fillColor,
+                        borderColor: borderColor,
+                        borderStrokeWidth: strokeWidth,
                         label: shouldShowLabel ? _getPlotLabelText(plot) : null,
-                        labelStyle: baseLabelStyle,
+                        labelStyle: isPlotHighlighted
+                            ? baseLabelStyle.copyWith(
+                                color: Colors.black,
+                                backgroundColor: const Color(0xFFFFD600),
+                                fontWeight: FontWeight.w900,
+                              )
+                            : baseLabelStyle,
                       );
                     }).toList();
                   }(),
@@ -4428,6 +4476,67 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               left: 16,
               right: 16,
               child: _buildSearchResults(),
+            ),
+
+          // BANNER NỔI BẬT LÔ RỪNG ĐƯỢC TÌM KIẾM (ĐA VÙNG)
+          if (_highlightedPlotIds.isNotEmpty)
+            Positioned(
+              top: 135,
+              left: 20,
+              right: 20,
+              child: Center(
+                child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(24),
+                  color: const Color(0xFF1E2820),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: const Color(0xFFFFD600), width: 1.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFFFD600),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Đang làm nổi bật Lô ${_highlightedPlotName ?? ""} (${_highlightedPlotIds.length} vùng)',
+                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        InkWell(
+                          onTap: () {
+                            setState(() {
+                              _highlightedPlotIds.clear();
+                              _highlightedPlotName = null;
+                            });
+                            _showToast('Đã tắt nổi bật Lô');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(
+                              color: Colors.white24,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
 
           // 5. CÁC NÚT ĐIỀU KHIỂN BÊN PHẢI (ĐÃ ĐẨY CAO TRÁNH THANH ĐIỀU HƯỚNG HỆ THỐNG)
@@ -5194,9 +5303,34 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   // =============================================================
-  // TÌM KIẾM THEO TÊN LÔ (GỢI Ý TỨC THÌ & BAY ĐẾN LÔ)
+  // TÌM KIẾM THEO TÊN LÔ (CHỈ LỌC LỚP 1, GỢI Ý & TỰ ĐỘNG CÂN CHỈNH ĐA VÙNG)
   // =============================================================
   void _openSearchPlotDialog() {
+    // 1. Xác định Lớp đầu tiên (Lớp 1 - Lớp hiển thị trên cùng)
+    final groupOrder = _getCurrentGroupOrder();
+    String firstLayerName = '';
+    for (final g in groupOrder) {
+      if (_plots.any((p) => p.groupName == g)) {
+        firstLayerName = g;
+        break;
+      }
+    }
+    if (firstLayerName.isEmpty && _plots.isNotEmpty) {
+      firstLayerName = _plots.first.groupName;
+    }
+
+    // Chỉ lọc các lô thuộc Lớp 1 theo yêu cầu để tránh nhiễu
+    final firstLayerPlots = _plots.where((p) => p.groupName == firstLayerName).toList();
+
+    // 2. Nhóm các đa giác theo Lô (Số hiệu Lô + Khoảnh + Tiểu khu) để hỗ trợ Lô có 3, 4... vùng
+    final Map<String, List<ForestPlot>> groupedByPlot = {};
+    for (final p in firstLayerPlots) {
+      final loKey = p.lo.trim().isNotEmpty
+          ? '${p.tieuKhu.trim().toLowerCase()}_${p.khoanh.trim().toLowerCase()}_${p.lo.trim().toLowerCase()}'
+          : p.fullName.trim().toLowerCase();
+      groupedByPlot.putIfAbsent(loKey, () => []).add(p);
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -5211,44 +5345,47 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
             final q = query.trim().toLowerCase();
             final qDigits = q.replaceAll(RegExp(r'[^0-9]'), '');
 
-            List<ForestPlot> matches = [];
+            List<List<ForestPlot>> matches = [];
             if (q.isNotEmpty) {
-              matches = _plots.where((p) {
-                final loLower = p.lo.toLowerCase();
-                final fullLower = p.fullName.toLowerCase();
-                final loDigits = p.lo.replaceAll(RegExp(r'[^0-9]'), '');
+              matches = groupedByPlot.values.where((list) {
+                final rep = list.first;
+                final loLower = rep.lo.toLowerCase();
+                final fullLower = rep.fullName.toLowerCase();
+                final loDigits = rep.lo.replaceAll(RegExp(r'[^0-9]'), '');
 
                 // 1. So khớp tên Lô hoặc số hiệu (ví dụ 313, 653)
                 if (loLower.contains(q) || fullLower.contains(q)) return true;
                 if (qDigits.isNotEmpty && loDigits.contains(qDigits)) return true;
 
                 // 2. So khớp các thuộc tính bổ sung (TEN_LO, MALO, Name...)
-                for (final val in p.attributes.values) {
-                  if (val.toLowerCase().contains(q)) return true;
+                for (final p in list) {
+                  for (final val in p.attributes.values) {
+                    if (val.toLowerCase().contains(q)) return true;
+                  }
                 }
 
                 // 3. So khớp khoảnh, tiểu khu, loại cây
-                if (p.khoanh.toLowerCase().contains(q) ||
-                    p.tieuKhu.toLowerCase().contains(q) ||
-                    p.loaiCay.toLowerCase().contains(q)) {
+                if (rep.khoanh.toLowerCase().contains(q) ||
+                    rep.tieuKhu.toLowerCase().contains(q) ||
+                    rep.loaiCay.toLowerCase().contains(q)) {
                   return true;
                 }
 
                 return false;
               }).toList();
 
-              // Sắp xếp ưu tiên độ khớp
+              // Sắp xếp ưu tiên độ khớp chính xác
               matches.sort((a, b) {
-                final aLo = a.lo.trim().toLowerCase();
-                final bLo = b.lo.trim().toLowerCase();
+                final aRep = a.first;
+                final bRep = b.first;
+                final aLo = aRep.lo.trim().toLowerCase();
+                final bLo = bRep.lo.trim().toLowerCase();
 
-                // Khớp chính xác hoàn toàn (ví dụ "313" == "313" hoặc "lô 313")
                 final aExact = aLo == q || aLo == 'lô $q' || aLo == 'lo $q';
                 final bExact = bLo == q || bLo == 'lô $q' || bLo == 'lo $q';
                 if (aExact && !bExact) return -1;
                 if (!aExact && bExact) return 1;
 
-                // Bắt đầu bằng từ khóa
                 final aStart = aLo.startsWith(q) || aLo.startsWith('lô $q');
                 final bStart = bLo.startsWith(q) || bLo.startsWith('lô $q');
                 if (aStart && !bStart) return -1;
@@ -5257,8 +5394,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 return aLo.compareTo(bLo);
               });
             } else {
-              // Khi chưa gõ gì, lấy các lô đầu tiên làm mẫu gợi ý
-              matches = _plots.take(15).toList();
+              // Mẫu gợi ý các Lô trong Lớp 1 khi chưa nhập
+              matches = groupedByPlot.values.take(20).toList();
             }
 
             final bottomInset = MediaQuery.of(sheetCtx).viewInsets.bottom;
@@ -5337,9 +5474,35 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
+                  // Thanh phạm vi: CHỈ TÌM TRONG LỚP 1
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2E7D32).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.layers_rounded, size: 16, color: Color(0xFF1B5E20)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Phạm vi tìm kiếm: Lớp 1 - ${firstLayerName.isNotEmpty ? firstLayerName : "Mặc định"} (${firstLayerPlots.length} vùng • ${groupedByPlot.length} lô)',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                   // Thanh tiêu đề gợi ý
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                     child: Row(
                       children: [
                         Icon(
@@ -5350,7 +5513,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         const SizedBox(width: 6),
                         Text(
                           query.isEmpty
-                              ? 'Gợi ý danh sách Lô rừng có sẵn (${_plots.length} lô):'
+                              ? 'Gợi ý danh sách Lô có sẵn trong Lớp 1 (${groupedByPlot.length} lô):'
                               : 'Kết quả tìm kiếm (${matches.length} lô phù hợp):',
                           style: TextStyle(
                             fontSize: 12.5,
@@ -5374,7 +5537,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 Icon(Icons.search_off_rounded, size: 54, color: Colors.grey.shade400),
                                 const SizedBox(height: 10),
                                 Text(
-                                  'Không tìm thấy lô nào khớp với "$query"',
+                                  'Không tìm thấy lô nào khớp với "$query" trong Lớp 1',
                                   style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54, fontSize: 14),
                                 ),
                                 const SizedBox(height: 4),
@@ -5390,10 +5553,13 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                             itemCount: matches.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 6),
                             itemBuilder: (ctx, i) {
-                              final plot = matches[i];
-                              final plotNameDisplay = plot.lo.trim().toLowerCase().startsWith('lô')
-                                  ? plot.lo
-                                  : (plot.lo.isNotEmpty ? 'Lô ${plot.lo}' : plot.fullName);
+                              final plotGroup = matches[i];
+                              final rep = plotGroup.first;
+                              final regionCount = plotGroup.length;
+                              final totalArea = plotGroup.fold<double>(0.0, (sum, p) => sum + p.dienTich);
+                              final plotNameDisplay = rep.lo.trim().toLowerCase().startsWith('lô')
+                                  ? rep.lo
+                                  : (rep.lo.isNotEmpty ? 'Lô ${rep.lo}' : rep.fullName);
 
                               return Container(
                                 decoration: BoxDecoration(
@@ -5411,21 +5577,50 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 child: ListTile(
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                                   leading: Container(
-                                    width: 38,
-                                    height: 38,
+                                    width: 42,
+                                    height: 42,
                                     decoration: BoxDecoration(
-                                      color: plot.color.withValues(alpha: 0.2),
+                                      color: rep.color.withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: plot.color, width: 2),
+                                      border: Border.all(color: rep.color, width: 2),
                                     ),
-                                    child: const Icon(Icons.forest_rounded, size: 22, color: Color(0xFF1B5E20)),
+                                    child: Center(
+                                      child: regionCount > 1
+                                          ? Text(
+                                              '$regionCount',
+                                              style: TextStyle(fontWeight: FontWeight.w900, color: Colors.green.shade900, fontSize: 17),
+                                            )
+                                          : const Icon(Icons.forest_rounded, size: 22, color: Color(0xFF1B5E20)),
+                                    ),
                                   ),
                                   title: Row(
                                     children: [
                                       Expanded(
-                                        child: Text(
-                                          plotNameDisplay,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+                                        child: Row(
+                                          children: [
+                                            Flexible(
+                                              child: Text(
+                                                plotNameDisplay,
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            if (regionCount > 1) ...[
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFFFF8E1),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(color: const Color(0xFFFFB300), width: 0.8),
+                                                ),
+                                                child: Text(
+                                                  '$regionCount vùng',
+                                                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFFE65100)),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
                                       Container(
@@ -5436,7 +5631,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                           border: Border.all(color: Colors.green.shade300),
                                         ),
                                         child: Text(
-                                          '${plot.dienTich.toStringAsFixed(2)} ha',
+                                          '${totalArea.toStringAsFixed(2)} ha',
                                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF1B5E20)),
                                         ),
                                       ),
@@ -5448,14 +5643,14 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Khoảnh: ${plot.khoanh.isNotEmpty ? plot.khoanh : "---"} • TK: ${plot.tieuKhu.isNotEmpty ? plot.tieuKhu : "---"} • ${plot.loaiCay.isNotEmpty ? plot.loaiCay : plot.trangThaiRung}',
+                                          'Khoảnh: ${rep.khoanh.isNotEmpty ? rep.khoanh : "---"} • TK: ${rep.tieuKhu.isNotEmpty ? rep.tieuKhu : "---"} • ${rep.loaiCay.isNotEmpty ? rep.loaiCay : rep.trangThaiRung}',
                                           style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                                         ),
-                                        if (plot.groupName.isNotEmpty && plot.groupName != 'Dữ liệu mặc định')
+                                        if (rep.groupName.isNotEmpty && rep.groupName != 'Dữ liệu mặc định')
                                           Padding(
                                             padding: const EdgeInsets.only(top: 2),
                                             child: Text(
-                                              '📁 ${plot.groupName}',
+                                              '📁 ${rep.groupName}',
                                               style: TextStyle(fontSize: 10.5, color: Colors.blueGrey.shade600),
                                             ),
                                           ),
@@ -5467,24 +5662,53 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                     Navigator.pop(sheetCtx);
 
                                     // Nếu nhóm đang bị ẩn -> Tự động bật nhóm lên
-                                    if (_hiddenGroups.contains(plot.groupName)) {
+                                    if (_hiddenGroups.contains(rep.groupName)) {
                                       setState(() {
-                                        _hiddenGroups.remove(plot.groupName);
+                                        _hiddenGroups.remove(rep.groupName);
                                       });
                                     }
 
-                                    // Di chuyển camera tới tâm lô
-                                    _mapController.move(plot.center, 16.8);
+                                    // TÍNH TOÀN BỘ BOUNDS CỦA TẤT CẢ CÁC VÙNG CỦA LÔ NÀY (HỖ TRỢ 3, 4... VÙNG)
+                                    double minLat = 90.0, maxLat = -90.0, minLng = 180.0, maxLng = -180.0;
+                                    bool hasCoords = false;
+                                    for (final p in plotGroup) {
+                                      for (final pt in p.boundary) {
+                                        hasCoords = true;
+                                        if (pt.latitude < minLat) minLat = pt.latitude;
+                                        if (pt.latitude > maxLat) maxLat = pt.latitude;
+                                        if (pt.longitude < minLng) minLng = pt.longitude;
+                                        if (pt.longitude > maxLng) maxLng = pt.longitude;
+                                      }
+                                    }
 
-                                    // Chọn và highlight lô
+                                    // Tự động căn chỉnh Camera bao trọn toàn bộ các vùng của Lô
+                                    if (hasCoords) {
+                                      if ((maxLat - minLat).abs() < 0.00005 && (maxLng - minLng).abs() < 0.00005) {
+                                        _mapController.move(LatLng(minLat, minLng), 17.0);
+                                      } else {
+                                        final bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
+                                        _mapController.fitCamera(
+                                          CameraFit.bounds(
+                                            bounds: bounds,
+                                            padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 90),
+                                            maxZoom: 17.5,
+                                          ),
+                                        );
+                                      }
+                                    }
+
+                                    // Chọn và làm nổi bật toàn bộ các vùng của Lô
                                     setState(() {
-                                      _selectedPlot = plot;
+                                      _highlightedPlotIds.clear();
+                                      _highlightedPlotIds.addAll(plotGroup.map((p) => p.id));
+                                      _highlightedPlotName = rep.lo.trim().isNotEmpty ? rep.lo : rep.fullName;
+                                      _selectedPlot = rep;
                                     });
 
                                     // Mở thông tin chi tiết lô
-                                    _showPlotDetailSheet(plot);
+                                    _showPlotDetailSheet(rep);
 
-                                    _showToast('Đã di chuyển đến $plotNameDisplay (${plot.dienTich.toStringAsFixed(2)} ha)!');
+                                    _showToast('Đã bay đến $plotNameDisplay (${plotGroup.length} vùng • ${totalArea.toStringAsFixed(2)} ha)!');
                                   },
                                 ),
                               );
