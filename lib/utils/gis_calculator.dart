@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
+import '../models/forest_plot.dart';
 
 class GisCalculator {
   static const double earthRadius = 6378137.0; // WGS-84 equatorial radius in meters
@@ -67,5 +68,144 @@ class GisCalculator {
       total += distance.as(LengthUnit.Meter, points.last, points.first);
     }
     return total;
+  }
+
+  /// Thuật toán gom cụm các đa giác rời rạc (Disjoint Polygon Clustering)
+  /// Đếm chính xác số vùng đa giác địa lý thực tế người dùng nhìn thấy trên bản đồ.
+  /// Các mảnh tiếp giáp (khoảng cách <= 10m) hoặc kề cận song song qua đường ranh (khoảng cách <= 18m, dải tiếp xúc >= 25m)
+  /// sẽ được gộp thành 1 vùng liên tục.
+  static int countDisjointRegions(List<ForestPlot> plotGroup) {
+    if (plotGroup.isEmpty) return 0;
+    if (plotGroup.length == 1) return 1;
+
+    final n = plotGroup.length;
+    final parent = List<int>.generate(n, (i) => i);
+
+    int find(int i) {
+      if (parent[i] == i) return i;
+      parent[i] = find(parent[i]);
+      return parent[i];
+    }
+
+    void union(int i, int j) {
+      final rootI = find(i);
+      final rootJ = find(j);
+      if (rootI != rootJ) {
+        parent[rootI] = rootJ;
+      }
+    }
+
+    // Tính trước Bounding Box của từng đa giác để tối ưu hiệu năng
+    final minLats = <double>[];
+    final maxLats = <double>[];
+    final minLngs = <double>[];
+    final maxLngs = <double>[];
+
+    for (final p in plotGroup) {
+      double minLat = 90.0, maxLat = -90.0, minLng = 180.0, maxLng = -180.0;
+      for (final pt in p.boundary) {
+        if (pt.latitude < minLat) minLat = pt.latitude;
+        if (pt.latitude > maxLat) maxLat = pt.latitude;
+        if (pt.longitude < minLng) minLng = pt.longitude;
+        if (pt.longitude > maxLng) maxLng = pt.longitude;
+      }
+      minLats.add(minLat);
+      maxLats.add(maxLat);
+      minLngs.add(minLng);
+      maxLngs.add(maxLng);
+    }
+
+    const double mPerDegLat = 111139.0;
+
+    for (int i = 0; i < n; i++) {
+      final b1 = plotGroup[i].boundary;
+      if (b1.isEmpty) continue;
+      final lat1 = minLats[i];
+      final cosLat = math.cos(lat1 * math.pi / 180.0).abs();
+      final mPerDegLng = mPerDegLat * cosLat;
+
+      for (int j = i + 1; j < n; j++) {
+        final b2 = plotGroup[j].boundary;
+        if (b2.isEmpty) continue;
+
+        // Sơ loại nhanh bằng Bounding Box mở rộng 25 mét
+        final latBuf = 25.0 / mPerDegLat;
+        final lngBuf = 25.0 / mPerDegLng;
+        if (minLats[i] - latBuf > maxLats[j] ||
+            maxLats[i] + latBuf < minLats[j] ||
+            minLngs[i] - lngBuf > maxLngs[j] ||
+            maxLngs[i] + lngBuf < minLngs[j]) {
+          continue;
+        }
+
+        double minD = 1e9;
+        double sharedFacingLength = 0.0;
+
+        for (int k = 0; k < b1.length; k++) {
+          final pt1 = b1[k];
+          double dMinForPt1 = 1e9;
+
+          for (final pt2 in b2) {
+            final dLat = (pt1.latitude - pt2.latitude) * mPerDegLat;
+            final dLng = (pt1.longitude - pt2.longitude) * mPerDegLng;
+            final dist = math.sqrt(dLat * dLat + dLng * dLng);
+            if (dist < minD) minD = dist;
+            if (dist < dMinForPt1) dMinForPt1 = dist;
+          }
+
+          if (dMinForPt1 <= 18.0) {
+            final nextPt = b1[(k + 1) % b1.length];
+            final segLat = (pt1.latitude - nextPt.latitude) * mPerDegLat;
+            final segLng = (pt1.longitude - nextPt.longitude) * mPerDegLng;
+            sharedFacingLength += math.sqrt(segLat * segLat + segLng * segLng);
+          }
+        }
+
+        // Điều kiện gộp:
+        // 1. Khoảng cách trực tiếp <= 10.0m: các mảnh bị xẻ bởi đường ranh, mương nội bộ
+        // 2. Hoặc khoảng cách <= 18.0m và có chiều dài kề cận song song >= 25.0m
+        // (loại trừ các góc giao nhau ngã tư chỉ chạm 1 đoạn ngắn < 20m)
+        if (minD <= 10.0 || (minD <= 18.0 && sharedFacingLength >= 25.0)) {
+          union(i, j);
+        }
+      }
+    }
+
+    final uniqueRoots = <int>{};
+    for (int i = 0; i < n; i++) {
+      uniqueRoots.add(find(i));
+    }
+    return uniqueRoots.length;
+  }
+
+  /// Tính diện tích chuẩn xác của toàn bộ Lô
+  /// Tránh bị cộng dồn nhân gấp N lần khi tất cả các mảnh con mang cùng 1 thuộc tính diện tích của cả Lô
+  static double calculateTotalLotArea(List<ForestPlot> plotGroup) {
+    if (plotGroup.isEmpty) return 0.0;
+    if (plotGroup.length == 1) return plotGroup.first.dienTich;
+
+    final repArea = plotGroup.first.dienTich;
+    // Kiểm tra xem tất cả các mảnh con có cùng thuộc tính diện tích (> 0) không
+    final bool allSameAttr = repArea > 0 && plotGroup.every((p) => (p.dienTich - repArea).abs() < 0.01);
+
+    // Tính tổng diện tích hình học thực tế từ toạ độ GPS của các mảnh con
+    double geometricSum = 0.0;
+    for (final p in plotGroup) {
+      geometricSum += calculateAreaInHectares(p.boundary);
+    }
+
+    if (allSameAttr) {
+      // Khi xuất GIS / KML, thuộc tính dien_tich của cả lô được gán lặp lại cho từng polygon con
+      // Vì vậy diện tích cả lô chính là giá trị danh nghĩa repArea
+      return repArea;
+    }
+
+    final sumFold = plotGroup.fold<double>(0.0, (sum, p) => sum + p.dienTich);
+    // Nếu tổng cộng dồn gấp hơn 1.5 lần diện tích hình học, ưu tiên diện tích hình học
+    if (geometricSum > 0 && sumFold > geometricSum * 1.5) {
+      return geometricSum;
+    }
+
+    return sumFold > 0 ? sumFold : geometricSum;
   }
 }

@@ -167,6 +167,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   // Nổi bật Lô khi tìm kiếm (hỗ trợ đa vùng và làm tối các vùng khác)
   final Set<String> _highlightedPlotIds = {};
   String? _highlightedPlotName;
+  int _highlightedRegionCount = 0;
   double _highlightedTotalArea = 0.0;
 
   // Cấu hình Tô màu & Nhãn nâng cao (Tử số / Mẫu số / Hệ suy LDLR)
@@ -3867,6 +3868,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           setState(() {
             _highlightedPlotIds.clear();
             _highlightedPlotName = null;
+            _highlightedRegionCount = 0;
             _highlightedTotalArea = 0.0;
           });
           _showToast('Đã tắt chế độ nổi bật Lô');
@@ -4520,7 +4522,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
-                            'Tổng Lô ${_highlightedPlotName ?? ""} (${_highlightedPlotIds.length} vùng) • Tổng DT: ${_highlightedTotalArea.toStringAsFixed(2)} ha',
+                            'Tổng Lô ${_highlightedPlotName ?? ""} (${_highlightedRegionCount > 0 ? _highlightedRegionCount : _highlightedPlotIds.length} vùng) • Tổng DT: ${_highlightedTotalArea.toStringAsFixed(2)} ha',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12.5,
@@ -4535,6 +4537,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                             setState(() {
                               _highlightedPlotIds.clear();
                               _highlightedPlotName = null;
+                              _highlightedRegionCount = 0;
                               _highlightedTotalArea = 0.0;
                             });
                             _showToast('Đã tắt nổi bật Lô');
@@ -5581,8 +5584,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                             itemBuilder: (ctx, i) {
                               final plotGroup = matches[i];
                               final rep = plotGroup.first;
-                              final regionCount = plotGroup.length;
-                              final totalArea = plotGroup.fold<double>(0.0, (sum, p) => sum + p.dienTich);
+                              final regionCount = GisCalculator.countDisjointRegions(plotGroup);
+                              final totalArea = GisCalculator.calculateTotalLotArea(plotGroup);
                               final plotNameDisplay = rep.lo.trim().toLowerCase().startsWith('lô')
                                   ? rep.lo
                                   : (rep.lo.isNotEmpty ? 'Lô ${rep.lo}' : rep.fullName);
@@ -5723,11 +5726,15 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                       }
                                     }
 
+                                    final regionCount = GisCalculator.countDisjointRegions(plotGroup);
+                                    final totalArea = GisCalculator.calculateTotalLotArea(plotGroup);
+
                                     // Chọn và làm nổi bật toàn bộ các vùng của Lô
                                     setState(() {
                                       _highlightedPlotIds.clear();
                                       _highlightedPlotIds.addAll(plotGroup.map((p) => p.id));
                                       _highlightedPlotName = rep.lo.trim().isNotEmpty ? rep.lo : rep.fullName;
+                                      _highlightedRegionCount = regionCount;
                                       _highlightedTotalArea = totalArea;
                                       _selectedPlot = rep;
                                     });
@@ -5735,7 +5742,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                     // Mở thông tin chi tiết lô
                                     _showPlotDetailSheet(rep);
 
-                                    _showToast('Đã bay đến $plotNameDisplay (${plotGroup.length} vùng • ${totalArea.toStringAsFixed(2)} ha)!');
+                                    _showToast('Đã bay đến $plotNameDisplay ($regionCount vùng • ${totalArea.toStringAsFixed(2)} ha)!');
                                   },
                                 ),
                               );
