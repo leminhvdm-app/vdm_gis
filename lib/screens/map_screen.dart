@@ -1470,6 +1470,58 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+
+              // MỤC 4: KIỂM TRA BẢN CẬP NHẬT MỚI (TỰ ĐỘNG TẢI & CÀI ĐẶT)
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  AppUpdateService.checkForUpdate(context, silent: false);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B5E20).withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFF2E7D32).withValues(alpha: 0.35),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Color(0xFFE8F5E9),
+                        radius: 20,
+                        child: Icon(Icons.system_update_rounded, color: Color(0xFF1B5E20), size: 22),
+                      ),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'KIỂM TRA BẢN CẬP NHẬT MỚI',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1B5E20),
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Kiểm tra phiên bản mới, tự động tải & cài đặt trực tiếp',
+                              style: TextStyle(fontSize: 11, color: Colors.black54),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.arrow_forward_ios, size: 16, color: Color(0xFF1B5E20)),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 18),
               // Thông tin ứng dụng
               Center(
@@ -4037,10 +4089,18 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         borderStrokeWidth: strokeWidth,
                         label: shouldShowLabel ? _getPlotLabelText(plot) : null,
                         labelStyle: isPlotHighlighted
-                            ? baseLabelStyle.copyWith(
-                                color: Colors.black,
-                                backgroundColor: const Color(0xFFFFD600),
-                                fontWeight: FontWeight.w900,
+                            ? TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: math.max(_labelFontSize + 3.5, 14.5),
+                                height: 1.25,
+                                shadows: const [
+                                  Shadow(color: Colors.black, blurRadius: 3, offset: Offset(-1.2, -1.2)),
+                                  Shadow(color: Colors.black, blurRadius: 3, offset: Offset(1.2, -1.2)),
+                                  Shadow(color: Colors.black, blurRadius: 3, offset: Offset(-1.2, 1.2)),
+                                  Shadow(color: Colors.black, blurRadius: 3, offset: Offset(1.2, 1.2)),
+                                  Shadow(color: Colors.black, blurRadius: 6, offset: Offset(0, 0)),
+                                ],
                               )
                             : baseLabelStyle,
                       );
@@ -4481,7 +4541,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           // BANNER NỔI BẬT LÔ RỪNG ĐƯỢC TÌM KIẾM (ĐA VÙNG)
           if (_highlightedPlotIds.isNotEmpty)
             Positioned(
-              top: 135,
+              top: MediaQuery.of(context).padding.top + (_isHudExpanded ? 180 : 85),
               left: 20,
               right: 20,
               child: Center(
@@ -6572,27 +6632,6 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF1B5E20),
-                            side: const BorderSide(color: Color(0xFF2E7D32)),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          icon: const Icon(Icons.system_update_rounded, size: 18),
-                          label: const Text(
-                            'Kiểm tra bản cập nhật mới (Tự động tải & cài đặt)',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            AppUpdateService.checkForUpdate(context, silent: false);
-                          },
-                        ),
                       ),
                       const Divider(height: 24),
 
