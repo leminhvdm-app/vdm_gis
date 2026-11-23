@@ -1369,58 +1369,6 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 12),
 
-              // MỤC MỚI: TÌM KIẾM THEO TÊN LÔ (CÓ GỢI Ý & BAY ĐẾN LÔ)
-              InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openSearchPlotDialog();
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2E7D32).withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: const Color(0xFF2E7D32).withValues(alpha: 0.35),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: const Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: Color(0xFFE8F5E9),
-                        radius: 20,
-                        child: Icon(Icons.search_rounded, color: Color(0xFF1B5E20), size: 24),
-                      ),
-                      SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'TÌM KIẾM THEO TÊN LÔ',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1B5E20),
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Tìm nhanh lô 313, 653... có gợi ý tức thì và bay đến lô',
-                              style: TextStyle(fontSize: 11, color: Colors.black54),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.arrow_forward_ios, size: 16, color: Color(0xFF1B5E20)),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
               // MỤC 3: DỌN DẸP BỘ NHỚ ĐỆM (CACHE) & TỐI ƯU APP
               InkWell(
                 borderRadius: BorderRadius.circular(14),
