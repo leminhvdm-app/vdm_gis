@@ -179,6 +179,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   bool _labelHasHalo = true; // Chữ đậm viền tương phản dễ đọc
   Color _labelHaloColor = const Color(0xFF000000); // Màu viền chữ (Mặc định: Đen)
   Color? _polygonBorderColor; // Màu viền các lớp đa giác (null = Mặc định theo màu Lô)
+  double _polygonBorderWidth = 1.0; // Độ dày viền đa giác (mặc định 1.0 mảnh, sắc nét)
   double _gpsWalkCurrentDist = 0.0; // Khoảng cách GPS đã đi từ điểm gần nhất
   String _ldlrStandard = 'TT33'; // Hệ suy LDLR: TT33 hoặc TT16
   List<String> _datasetGroupOrder = []; // Thứ tự các lớp dữ liệu (Lớp 1 nằm đầu tiên trên cùng, lớp 2 nằm dưới...)
@@ -440,6 +441,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         'labelHasHalo': _labelHasHalo,
         'labelHaloColor': _labelHaloColor.toARGB32(),
         'polygonBorderColor': _polygonBorderColor?.toARGB32(),
+        'polygonBorderWidth': _polygonBorderWidth,
         'labelFontSize': _labelFontSize,
         'labelMinZoom': _labelMinZoom,
         'labelNumeratorField': _labelNumeratorField,
@@ -491,6 +493,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           }
           if (data['polygonBorderColor'] != null) {
             _polygonBorderColor = Color(data['polygonBorderColor'] as int);
+          }
+          if (data['polygonBorderWidth'] != null) {
+            _polygonBorderWidth = (data['polygonBorderWidth'] as num).toDouble();
           }
           if (data['labelFontSize'] != null) {
             _labelFontSize = (data['labelFontSize'] as num).toDouble();
@@ -3253,6 +3258,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         Color tempColor = _labelColor;
         bool tempHalo = _labelHasHalo;
         Color? tempPolygonBorderColor = _polygonBorderColor;
+        double tempPolygonBorderWidth = _polygonBorderWidth;
         String tempLdlr = _ldlrStandard;
         bool tempShowPlotPolygons = _showPlotPolygons;
         bool tempShowPlotLabels = _showPlotLabels;
@@ -3722,6 +3728,48 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+
+                    // Độ dày viền đa giác Lô rừng (Polygon Border Width)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Độ dày viền đa giác (Polygon Border Width)',
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              {'width': 0.6, 'name': 'Siêu mảnh (0.6px)'},
+                              {'width': 1.0, 'name': 'Mảnh / Nhỏ (1.0px)'},
+                              {'width': 1.5, 'name': 'Vừa (1.5px)'},
+                              {'width': 2.0, 'name': 'Dày (2.0px)'},
+                            ].map((item) {
+                              final w = item['width'] as double;
+                              final name = item['name'] as String;
+                              final isSel = (tempPolygonBorderWidth - w).abs() < 0.1;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  avatar: Icon(Icons.line_weight, size: 14, color: isSel ? Colors.amberAccent : Colors.white70),
+                                  label: Text(name,
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                                          color: isSel ? Colors.white : Colors.white70)),
+                                  selected: isSel,
+                                  selectedColor: const Color(0xFF673AB7),
+                                  backgroundColor: const Color(0xFF1B223C),
+                                  side: BorderSide(color: isSel ? Colors.white70 : Colors.white24),
+                                  onSelected: (_) => setSheetState(() => tempPolygonBorderWidth = w),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 18),
 
                     // Cấu hình Chế độ Siêu Mượt khi nhiều Lô (Tối ưu GPU EvenOdd & nén đỉnh)
@@ -3776,6 +3824,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 tempColor = const Color(0xFFFFEB3B);
                                 tempHalo = true;
                                 tempPolygonBorderColor = null;
+                                tempPolygonBorderWidth = 1.0;
                                 tempLdlr = 'TT33';
                                 tempShowPlotPolygons = true;
                                 tempShowPlotLabels = true;
@@ -3815,6 +3864,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 _labelHasHalo = tempHalo;
                                 _labelHaloColor = const Color(0xFF000000);
                                 _polygonBorderColor = tempPolygonBorderColor;
+                                _polygonBorderWidth = tempPolygonBorderWidth;
                                 _ldlrStandard = tempLdlr;
                                 _showPlotPolygons = tempShowPlotPolygons;
                                 _showPlotLabels = tempShowPlotLabels;
@@ -4045,7 +4095,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 : isGpsHere
                                     ? Colors.green[900]!
                                     : (_polygonBorderColor ?? plot.color);
-                        strokeWidth = isSelected || isGpsHere || isEditing ? 3.5 : 2.0;
+                        strokeWidth = isSelected || isGpsHere || isEditing ? 3.0 : _polygonBorderWidth;
                         shouldShowLabel = allowGeneralLabels || isSelected || isGpsHere;
                       }
 
