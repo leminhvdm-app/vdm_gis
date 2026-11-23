@@ -5303,24 +5303,30 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   // =============================================================
-  // TÌM KIẾM THEO TÊN LÔ (CHỈ LỌC LỚP 1, GỢI Ý & TỰ ĐỘNG CÂN CHỈNH ĐA VÙNG)
+  // TÌM KIẾM THEO TÊN LÔ (CHỈ LỌC LỚP ĐƯỢC MỞ ĐẦU TIÊN, BỎ QUA CÁC LỚP ĐÃ ẨN)
   // =============================================================
   void _openSearchPlotDialog() {
-    // 1. Xác định Lớp đầu tiên (Lớp 1 - Lớp hiển thị trên cùng)
+    // 1. Xác định Lớp được mở đầu tiên (bỏ qua các lớp đã bị ẩn đi)
     final groupOrder = _getCurrentGroupOrder();
     String firstLayerName = '';
     for (final g in groupOrder) {
+      if (_hiddenGroups.contains(g)) continue; // Bỏ qua các lớp đã bị ẩn đi
       if (_plots.any((p) => p.groupName == g)) {
         firstLayerName = g;
         break;
       }
     }
-    if (firstLayerName.isEmpty && _plots.isNotEmpty) {
-      firstLayerName = _plots.first.groupName;
+    if (firstLayerName.isEmpty) {
+      final visiblePlots = _plots.where((p) => !_hiddenGroups.contains(p.groupName));
+      if (visiblePlots.isNotEmpty) {
+        firstLayerName = visiblePlots.first.groupName;
+      }
     }
 
-    // Chỉ lọc các lô thuộc Lớp 1 theo yêu cầu để tránh nhiễu
-    final firstLayerPlots = _plots.where((p) => p.groupName == firstLayerName).toList();
+    // Chỉ lọc các lô thuộc lớp đang mở đầu tiên (bỏ qua lớp bị ẩn)
+    final firstLayerPlots = firstLayerName.isNotEmpty
+        ? _plots.where((p) => p.groupName == firstLayerName && !_hiddenGroups.contains(p.groupName)).toList()
+        : <ForestPlot>[];
 
     // 2. Nhóm các đa giác theo Lô (Số hiệu Lô + Khoảnh + Tiểu khu) để hỗ trợ Lô có 3, 4... vùng
     final Map<String, List<ForestPlot>> groupedByPlot = {};
@@ -5490,7 +5496,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Phạm vi tìm kiếm: Lớp 1 - ${firstLayerName.isNotEmpty ? firstLayerName : "Mặc định"} (${firstLayerPlots.length} vùng • ${groupedByPlot.length} lô)',
+                              'Phạm vi tìm kiếm: ${firstLayerName.isNotEmpty ? "Lớp đang mở - $firstLayerName" : "Chưa có lớp nào đang mở"} (${firstLayerPlots.length} vùng • ${groupedByPlot.length} lô)',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20)),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -5513,7 +5519,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         const SizedBox(width: 6),
                         Text(
                           query.isEmpty
-                              ? 'Gợi ý danh sách Lô có sẵn trong Lớp 1 (${groupedByPlot.length} lô):'
+                              ? 'Gợi ý danh sách Lô có sẵn (${groupedByPlot.length} lô):'
                               : 'Kết quả tìm kiếm (${matches.length} lô phù hợp):',
                           style: TextStyle(
                             fontSize: 12.5,
@@ -5537,12 +5543,16 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                 Icon(Icons.search_off_rounded, size: 54, color: Colors.grey.shade400),
                                 const SizedBox(height: 10),
                                 Text(
-                                  'Không tìm thấy lô nào khớp với "$query" trong Lớp 1',
+                                  firstLayerPlots.isEmpty
+                                      ? 'Không có lớp bản đồ nào đang mở (hoặc các lớp đã bị ẩn)'
+                                      : 'Không tìm thấy lô nào khớp với "$query" trong lớp đang mở',
                                   style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54, fontSize: 14),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Hãy thử gõ lại số hiệu lô (ví dụ: 313 hoặc 653)',
+                                  firstLayerPlots.isEmpty
+                                      ? 'Vui lòng vào Hồ sơ cán bộ -> Quản lý lớp bản đồ để bật lớp'
+                                      : 'Hãy thử gõ lại số hiệu lô (ví dụ: 313 hoặc 653)',
                                   style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                                 ),
                               ],

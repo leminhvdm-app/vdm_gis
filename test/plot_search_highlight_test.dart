@@ -119,5 +119,29 @@ void main() {
       expect(minLng, 107.030);
       expect(maxLng, 107.042);
     });
+
+    test('Bỏ qua các lớp đã bị ẩn đi và lấy chính xác lớp được mở đầu tiên', () {
+      final hiddenGroups = {'Lớp 1 - Quy hoạch Lâm nghiệp'};
+      final groupOrder = [
+        'Lớp 1 - Quy hoạch Lâm nghiệp', // Đã bị ẩn
+        'Lớp 2 - Bản đồ vệ tinh phụ',    // Đang mở (active)
+        'Lớp 3 - Lớp dự phòng',
+      ];
+      final allPlots = [plotL1_313_part1, plotL2_313];
+
+      String firstActiveLayer = '';
+      for (final g in groupOrder) {
+        if (hiddenGroups.contains(g)) continue; // Bỏ qua lớp đã bị ẩn
+        if (allPlots.any((p) => p.groupName == g)) {
+          firstActiveLayer = g;
+          break;
+        }
+      }
+
+      expect(firstActiveLayer, 'Lớp 2 - Bản đồ vệ tinh phụ');
+      final activePlots = allPlots.where((p) => p.groupName == firstActiveLayer && !hiddenGroups.contains(p.groupName)).toList();
+      expect(activePlots.length, 1);
+      expect(activePlots.first.id, 'p2_313');
+    });
   });
 }
