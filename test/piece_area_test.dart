@@ -28,5 +28,29 @@ void main() {
     final totalLotArea = GisCalculator.calculateTotalLotArea(plots2);
     print('Total area of Lô 2: ${totalLotArea.toStringAsFixed(2)} ha');
     expect(totalLotArea, greaterThan(20.0));
+
+    // Lô 2: Từng mảnh con phải hiển thị diện tích riêng biệt chứ không hiển thị 24.24 ha
+    for (final p in plots2) {
+      final displayPiece = GisCalculator.getPlotPieceArea(p, allPlotsInLot: plots2);
+      expect(displayPiece, lessThan(20.0), reason: 'Mảnh con của Lô 2 không được lấy diện tích tổng cả lô!');
+    }
+
+    // Kiểm tra Lô đơn (ví dụ 1 lô chỉ có 1 mảnh và có diện tích hồ sơ 12.99 ha)
+    final singlePlot = plots2.first.copyWith(
+      id: 'single_test_lot_8',
+      lo: '8',
+      dienTich: 12.99,
+      attributes: {
+        'dien_tich1': '12.99',
+        'tenlo': '8',
+      },
+    );
+    // Nhãn diện tích của Lô đơn (1 vùng) phải lấy đúng 100% diện tích hồ sơ (12.99 ha), không bị lệch do tính hình học
+    final singleDisplayArea = GisCalculator.getPlotPieceArea(singlePlot, allPlotsInLot: [singlePlot]);
+    expect(singleDisplayArea, equals(12.99));
+
+    // Banner đáy của Lô đơn cũng phải lấy đúng 12.99 ha
+    final singleBannerArea = GisCalculator.calculateTotalLotArea([singlePlot]);
+    expect(singleBannerArea, equals(12.99));
   });
 }

@@ -178,24 +178,93 @@ class GisCalculator {
     return uniqueRoots.length;
   }
 
+  /// Trích xuất diện tích theo hồ sơ gốc (nếu có) từ thuộc tính của Plot
+  static double? getOfficialPlotArea(ForestPlot plot) {
+    for (final key in [
+      'dien_tich_ho_so',
+      'dien_tich1',
+      'dientich1',
+      'dien_tich',
+      'dientich',
+      'dien_tic',
+      'dien_tic_1',
+      'dt',
+      'area',
+    ]) {
+      final val = plot.attributes[key];
+      if (val != null && val.trim().isNotEmpty) {
+        final parsed = double.tryParse(val.trim());
+        if (parsed != null && parsed > 0) return parsed;
+      }
+    }
+    if (plot.dienTich > 0) return plot.dienTich;
+    return null;
+  }
+
+  /// Lấy diện tích hiển thị của một mảnh (polygon) theo đúng quy tắc:
+  /// - Nếu Lô đơn (chỉ có 1 mảnh / 1 vùng): Lấy đúng theo diện tích trong hồ sơ gốc (nếu có).
+  /// - Nếu Lô gồm nhiều mảnh:
+  ///   + Nếu tất cả các mảnh bị gán lặp lại cùng một giá trị diện tích tổng cả Lô:
+  ///     Từng mảnh sẽ hiển thị diện tích thực tế của mảnh đó (tính theo hình học GPS).
+  ///   + Nếu các mảnh có diện tích hồ sơ riêng biệt: Lấy diện tích hồ sơ của mảnh đó.
+  static double getPlotPieceArea(ForestPlot plot, {List<ForestPlot>? allPlotsInLot}) {
+    final official = getOfficialPlotArea(plot);
+
+    // Trường hợp Lô đơn (chỉ có 1 mảnh duy nhất)
+    if (allPlotsInLot == null || allPlotsInLot.length <= 1) {
+      if (official != null && official > 0) {
+        return official;
+      }
+      return calculateAreaInHectares(plot.boundary);
+    }
+
+    // Trường hợp Lô có nhiều mảnh:
+    if (official != null && official > 0) {
+      final bool allSameOfficial = allPlotsInLot.every((p) {
+        final o = getOfficialPlotArea(p);
+        return o != null && (o - official).abs() < 0.01;
+      });
+
+      if (allSameOfficial) {
+        // Thuộc tính hồ sơ bị gán trùng lặp cho mọi mảnh con -> hiển thị diện tích hình học từng mảnh
+        final geom = calculateAreaInHectares(plot.boundary);
+        return geom > 0 ? geom : official;
+      }
+
+      // Từng mảnh có số liệu hồ sơ riêng
+      return official;
+    }
+
+    final geom = calculateAreaInHectares(plot.boundary);
+    return geom > 0 ? geom : (plot.dienTich > 0 ? plot.dienTich : 0.0);
+  }
+
   /// Tính diện tích chuẩn xác của toàn bộ Lô
   /// Tránh bị cộng dồn nhân gấp N lần khi tất cả các mảnh con mang cùng 1 thuộc tính diện tích của cả Lô
   static double calculateTotalLotArea(List<ForestPlot> plotGroup) {
     if (plotGroup.isEmpty) return 0.0;
-    if (plotGroup.length == 1) return plotGroup.first.dienTich;
+    if (plotGroup.length == 1) {
+      final p = plotGroup.first;
+      final official = getOfficialPlotArea(p);
+      if (official != null && official > 0) return official;
+      return calculateAreaInHectares(p.boundary);
+    }
 
     final rep = plotGroup.first;
-    final repArea = rep.dienTich;
+    final officialRep = getOfficialPlotArea(rep);
 
     // 1. Kiểm tra thuộc tính diện tích tổng của cả Lô từ hồ sơ GIS (nếu có)
     final rawTotal = rep.attributes['dien_tich_tong_lo'] ??
         rep.attributes['dien_tich1'] ??
+        rep.attributes['dientich1'] ??
         rep.attributes['dien_tich'] ??
+        rep.attributes['dientich'] ??
         rep.attributes['dt'];
     double? officialLotArea;
     if (rawTotal != null) {
       officialLotArea = double.tryParse(rawTotal);
     }
+    officialLotArea ??= officialRep;
 
     // 2. Tính tổng diện tích hình học thực tế từ toạ độ GPS của các mảnh con
     double geometricSum = 0.0;
@@ -213,10 +282,9 @@ class GisCalculator {
     final sumFold = plotGroup.fold<double>(0.0, (sum, p) => sum + p.dienTich);
 
     // Nếu tất cả các mảnh con mang cùng 1 thuộc tính diện tích (> 0)
+    final repArea = rep.dienTich;
     final bool allSameAttr = repArea > 0 && plotGroup.every((p) => (p.dienTich - repArea).abs() < 0.01);
     if (allSameAttr) {
-      // Khi xuất GIS / KML, thuộc tính dien_tich của cả lô được gán lặp lại cho từng polygon con
-      // Vì vậy diện tích cả lô chính là giá trị danh nghĩa repArea
       return repArea;
     }
 
