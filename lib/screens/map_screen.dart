@@ -167,6 +167,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   // Nổi bật Lô khi tìm kiếm (hỗ trợ đa vùng và làm tối các vùng khác)
   final Set<String> _highlightedPlotIds = {};
   String? _highlightedPlotName;
+  double _highlightedTotalArea = 0.0;
 
   // Cấu hình Tô màu & Nhãn nâng cao (Tử số / Mẫu số / Hệ suy LDLR)
   String _labelNumeratorField = 'TEN_LO'; // Dòng trên: TEN_LO, DIEN_TIC, CHU_V, X, Y, LDLR, CTY, NTRUONG
@@ -3918,6 +3919,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
           setState(() {
             _highlightedPlotIds.clear();
             _highlightedPlotName = null;
+            _highlightedTotalArea = 0.0;
           });
           _showToast('Đã tắt chế độ nổi bật Lô');
           return;
@@ -4538,21 +4540,22 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               child: _buildSearchResults(),
             ),
 
-          // BANNER NỔI BẬT LÔ RỪNG ĐƯỢC TÌM KIẾM (ĐA VÙNG)
+          // BANNER NỔI BẬT LÔ RỪNG ĐƯỢC TÌM KIẾM (ĐA VÙNG) - DỜI XUỐNG DƯỚI ĐÁY MÀN HÌNH
           if (_highlightedPlotIds.isNotEmpty)
             Positioned(
-              top: MediaQuery.of(context).padding.top + (_isHudExpanded ? 180 : 85),
-              left: 20,
-              right: 20,
-              child: Center(
+              left: 14,
+              right: 76, // Chừa khoảng trống bên phải cho hàng nút điều khiển
+              bottom: bottomOffset,
+              child: Align(
+                alignment: Alignment.bottomLeft,
                 child: Material(
                   elevation: 8,
-                  borderRadius: BorderRadius.circular(24),
-                  color: const Color(0xFF1E2820),
+                  borderRadius: BorderRadius.circular(22),
+                  color: const Color(0xF0181818),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(22),
                       border: Border.all(color: const Color(0xFFFFD600), width: 1.5),
                     ),
                     child: Row(
@@ -4569,17 +4572,22 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
-                            'Đang làm nổi bật Lô ${_highlightedPlotName ?? ""} (${_highlightedPlotIds.length} vùng)',
-                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            'Tổng Lô ${_highlightedPlotName ?? ""} (${_highlightedPlotIds.length} vùng) • Tổng DT: ${_highlightedTotalArea.toStringAsFixed(2)} ha',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         InkWell(
                           onTap: () {
                             setState(() {
                               _highlightedPlotIds.clear();
                               _highlightedPlotName = null;
+                              _highlightedTotalArea = 0.0;
                             });
                             _showToast('Đã tắt nổi bật Lô');
                           },
@@ -5772,6 +5780,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                                       _highlightedPlotIds.clear();
                                       _highlightedPlotIds.addAll(plotGroup.map((p) => p.id));
                                       _highlightedPlotName = rep.lo.trim().isNotEmpty ? rep.lo : rep.fullName;
+                                      _highlightedTotalArea = totalArea;
                                       _selectedPlot = rep;
                                     });
 
