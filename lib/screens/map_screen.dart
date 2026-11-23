@@ -1364,6 +1364,58 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 12),
 
+              // MỤC MỚI: TÌM KIẾM THEO TÊN LÔ (CÓ GỢI Ý & BAY ĐẾN LÔ)
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openSearchPlotDialog();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2E7D32).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFF2E7D32).withValues(alpha: 0.35),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Color(0xFFE8F5E9),
+                        radius: 20,
+                        child: Icon(Icons.search_rounded, color: Color(0xFF1B5E20), size: 24),
+                      ),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'TÌM KIẾM THEO TÊN LÔ',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1B5E20),
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Tìm nhanh lô 313, 653... có gợi ý tức thì và bay đến lô',
+                              style: TextStyle(fontSize: 11, color: Colors.black54),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.arrow_forward_ios, size: 16, color: Color(0xFF1B5E20)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
               // MỤC 3: DỌN DẸP BỘ NHỚ ĐỆM (CACHE) & TỐI ƯU APP
               InkWell(
                 borderRadius: BorderRadius.circular(14),
@@ -5141,6 +5193,313 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     );
   }
 
+  // =============================================================
+  // TÌM KIẾM THEO TÊN LÔ (GỢI Ý TỨC THÌ & BAY ĐẾN LÔ)
+  // =============================================================
+  void _openSearchPlotDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (sheetCtx) {
+        String query = '';
+        final searchController = TextEditingController();
+
+        return StatefulBuilder(
+          builder: (dialogCtx, setSheetState) {
+            final q = query.trim().toLowerCase();
+            final qDigits = q.replaceAll(RegExp(r'[^0-9]'), '');
+
+            List<ForestPlot> matches = [];
+            if (q.isNotEmpty) {
+              matches = _plots.where((p) {
+                final loLower = p.lo.toLowerCase();
+                final fullLower = p.fullName.toLowerCase();
+                final loDigits = p.lo.replaceAll(RegExp(r'[^0-9]'), '');
+
+                // 1. So khớp tên Lô hoặc số hiệu (ví dụ 313, 653)
+                if (loLower.contains(q) || fullLower.contains(q)) return true;
+                if (qDigits.isNotEmpty && loDigits.contains(qDigits)) return true;
+
+                // 2. So khớp các thuộc tính bổ sung (TEN_LO, MALO, Name...)
+                for (final val in p.attributes.values) {
+                  if (val.toLowerCase().contains(q)) return true;
+                }
+
+                // 3. So khớp khoảnh, tiểu khu, loại cây
+                if (p.khoanh.toLowerCase().contains(q) ||
+                    p.tieuKhu.toLowerCase().contains(q) ||
+                    p.loaiCay.toLowerCase().contains(q)) {
+                  return true;
+                }
+
+                return false;
+              }).toList();
+
+              // Sắp xếp ưu tiên độ khớp
+              matches.sort((a, b) {
+                final aLo = a.lo.trim().toLowerCase();
+                final bLo = b.lo.trim().toLowerCase();
+
+                // Khớp chính xác hoàn toàn (ví dụ "313" == "313" hoặc "lô 313")
+                final aExact = aLo == q || aLo == 'lô $q' || aLo == 'lo $q';
+                final bExact = bLo == q || bLo == 'lô $q' || bLo == 'lo $q';
+                if (aExact && !bExact) return -1;
+                if (!aExact && bExact) return 1;
+
+                // Bắt đầu bằng từ khóa
+                final aStart = aLo.startsWith(q) || aLo.startsWith('lô $q');
+                final bStart = bLo.startsWith(q) || bLo.startsWith('lô $q');
+                if (aStart && !bStart) return -1;
+                if (!aStart && bStart) return 1;
+
+                return aLo.compareTo(bLo);
+              });
+            } else {
+              // Khi chưa gõ gì, lấy các lô đầu tiên làm mẫu gợi ý
+              matches = _plots.take(15).toList();
+            }
+
+            final bottomInset = MediaQuery.of(sheetCtx).viewInsets.bottom;
+
+            return Container(
+              height: MediaQuery.of(sheetCtx).size.height * 0.78,
+              padding: EdgeInsets.only(bottom: bottomInset),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF9FBF9),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  // Thanh kéo handle bar
+                  Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 8),
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+
+                  // Header & Search Box
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: const Color(0xFF2E7D32), width: 1.5),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.green.withValues(alpha: 0.08),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: TextField(
+                              controller: searchController,
+                              autofocus: true,
+                              textInputAction: TextInputAction.search,
+                              onChanged: (text) {
+                                setSheetState(() => query = text);
+                              },
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF2E7D32), size: 22),
+                                hintText: 'Nhập tên lô cần tìm (Ví dụ: 313, 653...)',
+                                hintStyle: TextStyle(fontSize: 13.5, color: Colors.grey.shade400),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 13, horizontal: 8),
+                                suffixIcon: query.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.close_rounded, size: 20, color: Colors.grey),
+                                        onPressed: () {
+                                          searchController.clear();
+                                          setSheetState(() => query = '');
+                                        },
+                                      )
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () => Navigator.pop(sheetCtx),
+                          child: const Text('Đóng', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Thanh tiêu đề gợi ý
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    child: Row(
+                      children: [
+                        Icon(
+                          query.isEmpty ? Icons.lightbulb_outline_rounded : Icons.filter_list_rounded,
+                          size: 16,
+                          color: const Color(0xFF2E7D32),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          query.isEmpty
+                              ? 'Gợi ý danh sách Lô rừng có sẵn (${_plots.length} lô):'
+                              : 'Kết quả tìm kiếm (${matches.length} lô phù hợp):',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Divider(height: 1, thickness: 0.8),
+
+                  // Danh sách gợi ý
+                  Expanded(
+                    child: matches.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.search_off_rounded, size: 54, color: Colors.grey.shade400),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Không tìm thấy lô nào khớp với "$query"',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54, fontSize: 14),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Hãy thử gõ lại số hiệu lô (ví dụ: 313 hoặc 653)',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            itemCount: matches.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 6),
+                            itemBuilder: (ctx, i) {
+                              final plot = matches[i];
+                              final plotNameDisplay = plot.lo.trim().toLowerCase().startsWith('lô')
+                                  ? plot.lo
+                                  : (plot.lo.isNotEmpty ? 'Lô ${plot.lo}' : plot.fullName);
+
+                              return Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.02),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                                  leading: Container(
+                                    width: 38,
+                                    height: 38,
+                                    decoration: BoxDecoration(
+                                      color: plot.color.withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: plot.color, width: 2),
+                                    ),
+                                    child: const Icon(Icons.forest_rounded, size: 22, color: Color(0xFF1B5E20)),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          plotNameDisplay,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.shade50,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.green.shade300),
+                                        ),
+                                        child: Text(
+                                          '${plot.dienTich.toStringAsFixed(2)} ha',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF1B5E20)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Khoảnh: ${plot.khoanh.isNotEmpty ? plot.khoanh : "---"} • TK: ${plot.tieuKhu.isNotEmpty ? plot.tieuKhu : "---"} • ${plot.loaiCay.isNotEmpty ? plot.loaiCay : plot.trangThaiRung}',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                        ),
+                                        if (plot.groupName.isNotEmpty && plot.groupName != 'Dữ liệu mặc định')
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 2),
+                                            child: Text(
+                                              '📁 ${plot.groupName}',
+                                              style: TextStyle(fontSize: 10.5, color: Colors.blueGrey.shade600),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  trailing: const Icon(Icons.near_me_rounded, color: Color(0xFF2E7D32), size: 22),
+                                  onTap: () {
+                                    Navigator.pop(sheetCtx);
+
+                                    // Nếu nhóm đang bị ẩn -> Tự động bật nhóm lên
+                                    if (_hiddenGroups.contains(plot.groupName)) {
+                                      setState(() {
+                                        _hiddenGroups.remove(plot.groupName);
+                                      });
+                                    }
+
+                                    // Di chuyển camera tới tâm lô
+                                    _mapController.move(plot.center, 16.8);
+
+                                    // Chọn và highlight lô
+                                    setState(() {
+                                      _selectedPlot = plot;
+                                    });
+
+                                    // Mở thông tin chi tiết lô
+                                    _showPlotDetailSheet(plot);
+
+                                    _showToast('Đã di chuyển đến $plotNameDisplay (${plot.dienTich.toStringAsFixed(2)} ha)!');
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   // TÌM KIẾM
   Widget _buildSearchResults() {
     final filtered = _plots.where((p) =>
@@ -5180,6 +5539,17 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Nút Tìm kiếm Lô rừng (Tìm kiếm thông minh & Gợi ý)
+        FloatingActionButton.small(
+          heroTag: 'search_plot_btn',
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF1B5E20),
+          tooltip: 'Tìm kiếm theo tên Lô (Ví dụ: 313, 653...)',
+          onPressed: _openSearchPlotDialog,
+          child: const Icon(Icons.search_rounded, size: 22),
+        ),
+        const SizedBox(height: 8),
+
         // Nút Tuần tra
         FloatingActionButton.small(
           heroTag: 'patrol_btn',
