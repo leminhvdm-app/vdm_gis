@@ -3105,7 +3105,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
       final jsonStr = const JsonEncoder.withIndent('  ').convert(geojsonMap);
       final tempDir = await getTemporaryDirectory();
-      final fileName = 'VDM_GIS_Export_${DateTime.now().millisecondsSinceEpoch}.geojson';
+      final fileName = 'DNKC_GIS_Export_${DateTime.now().millisecondsSinceEpoch}.geojson';
       final file = File('${tempDir.path}/$fileName');
       await file.writeAsString(jsonStr);
 

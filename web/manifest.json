@@ -1,6 +1,6 @@
 {
-    "name": "forest_gis",
-    "short_name": "forest_gis",
+    "name": "DNKC GIS",
+    "short_name": "DNKC GIS",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -20,9 +20,9 @@ class UserProfile {
   /// Lấy chữ cái viết tắt sắc nét từ họ và tên người dùng (ví dụ: võ đức minh -> VDM)
   String get initials {
     final clean = fullName.trim();
-    if (clean.isEmpty) return 'VDM';
+    if (clean.isEmpty) return 'DNKC';
     final parts = clean.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
-    if (parts.isEmpty) return 'VDM';
+    if (parts.isEmpty) return 'DNKC';
 
     String unaccent(String str) {
       if (str.isEmpty) return '';

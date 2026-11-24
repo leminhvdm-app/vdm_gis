@@ -166,7 +166,7 @@ class PersistentOfflineTileProvider extends TileProvider {
             try {
               final res = await _sharedHttpClient.get(
                 Uri.parse(url),
-                headers: {'User-Agent': 'Mozilla/5.0 (Linux; Android 10; VDM_GIS)'},
+                headers: {'User-Agent': 'Mozilla/5.0 (Linux; Android 10; DNKC_GIS)'},
               ).timeout(const Duration(seconds: 4));
 
               if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
@@ -239,7 +239,7 @@ class PersistentOfflineTileProvider extends TileProvider {
             try {
               final res = await _sharedHttpClient.get(
                 Uri.parse(url),
-                headers: {'User-Agent': 'Mozilla/5.0 (Linux; Android 10; VDM_GIS)'},
+                headers: {'User-Agent': 'Mozilla/5.0 (Linux; Android 10; DNKC_GIS)'},
               ).timeout(const Duration(seconds: 4));
 
               if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
@@ -393,7 +393,7 @@ class PersistentTileImageProvider extends ImageProvider<PersistentTileKey> {
     try {
       final uri = Uri.parse(effectiveUrl);
       final reqHeaders = <String, String>{
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; VDM_GIS)',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; DNKC_GIS)',
         'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
         ...headers,
       };

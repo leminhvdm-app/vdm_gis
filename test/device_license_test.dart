@@ -6,7 +6,7 @@ void main() {
 
   group('DeviceLicenseManager Tests', () {
     test('generateActivationKey tạo mã kích hoạt đúng định dạng và ổn định', () {
-      const installCode = 'VDM-7A8B-9C2D';
+      const installCode = 'DNKC-7A8B-9C2D';
       final actKey = DeviceLicenseManager.generateActivationKey(installCode);
 
       expect(actKey.contains('-'), true, reason: 'Mã kích hoạt phải có dấu gạch ngang phân tách');
@@ -17,19 +17,23 @@ void main() {
       expect(actKey, actKey2);
 
       // Mã cài đặt khác nhau sẽ sinh mã kích hoạt khác nhau
-      const installCodeOther = 'VDM-1122-3344';
+      const installCodeOther = 'DNKC-1122-3344';
       final actKeyOther = DeviceLicenseManager.generateActivationKey(installCodeOther);
       expect(actKey != actKeyOther, true);
     });
 
     test('verifyActivationKey xác thực chính xác mã kích hoạt', () {
-      const installCode = 'VDM-8F4A-92BC';
+      const installCode = 'DNKC-8F4A-92BC';
       final validKey = DeviceLicenseManager.generateActivationKey(installCode);
 
       // Mã đúng
       expect(DeviceLicenseManager.verifyActivationKey(installCode, validKey), true);
       // Mã đúng nhưng người dùng gõ không có dấu gạch ngang
       expect(DeviceLicenseManager.verifyActivationKey(installCode, validKey.replaceAll('-', '')), true);
+      // Hỗ trợ mã sinh từ tiền tố cũ VDM-
+      const legacyCode = 'VDM-8F4A-92BC';
+      final legacyValidKey = DeviceLicenseManager.generateActivationKey(legacyCode);
+      expect(DeviceLicenseManager.verifyActivationKey(installCode, legacyValidKey), true);
       // Mã sai
       expect(DeviceLicenseManager.verifyActivationKey(installCode, '0000-0000'), false);
       expect(DeviceLicenseManager.verifyActivationKey(installCode, '12345678'), false);

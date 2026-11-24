@@ -23,7 +23,7 @@ class VdmGisApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'VDM GIS',
+      title: 'DNKC GIS',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

@@ -36,7 +36,7 @@ void main() {
       expect(UserProfile(fullName: 'vo duc minh').initials, 'VDM');
       expect(UserProfile(fullName: 'Lê Văn An').initials, 'LVA');
       expect(UserProfile(fullName: 'Nguyễn').initials, 'NGU');
-      expect(UserProfile(fullName: '').initials, 'VDM');
+      expect(UserProfile(fullName: '').initials, 'DNKC');
     });
   });
 }

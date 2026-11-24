@@ -189,7 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
         bool isValid = DeviceLicenseManager.verifyActivationKey(_installCode, enteredKey);
         // Nếu người dùng nhập nhầm Mã cài đặt thay vì Mã kích hoạt
         if (!isValid && (enteredKey.toUpperCase() == _installCode.toUpperCase() ||
-            enteredKey.toUpperCase() == _installCode.replaceAll('VDM-', '').toUpperCase())) {
+            enteredKey.toUpperCase() == _installCode.replaceAll('DNKC-', '').replaceAll('VDM-', '').toUpperCase())) {
           final remoteAct = await DeviceLicenseManager.checkRemoteActivationStatus();
           if (remoteAct) {
             isValid = true;
@@ -209,7 +209,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         // Kích hoạt máy thành công
-        final keyToSave = isValid && !enteredKey.startsWith('VDM-')
+        final keyToSave = isValid && !enteredKey.startsWith('DNKC-') && !enteredKey.startsWith('VDM-')
             ? enteredKey
             : DeviceLicenseManager.generateActivationKey(_installCode);
         await DeviceLicenseManager.activateDevice(keyToSave);
@@ -352,7 +352,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 14),
                       const Text(
-                        'VDM GIS',
+                        'DNKC GIS',
                         style: TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.bold,

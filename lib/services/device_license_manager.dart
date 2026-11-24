@@ -29,7 +29,7 @@ class DeviceLicenseManager {
   }
 
   /// Lấy hoặc tạo mới Mã Cài Đặt (Installation Code) duy nhất cho thiết bị này
-  /// Định dạng: VDM-XXXX-YYYY (ví dụ: VDM-7A8B-9C2D)
+  /// Định dạng: DNKC-XXXX-YYYY (ví dụ: DNKC-7A8B-9C2D)
   static Future<String> getInstallationCode() async {
     if (_cachedInstallCode != null && _cachedInstallCode!.isNotEmpty) {
       return _cachedInstallCode!;
@@ -43,10 +43,11 @@ class DeviceLicenseManager {
           final map = jsonDecode(content) as Map<String, dynamic>;
           final code = map['installCode'] as String?;
           if (code != null && code.isNotEmpty) {
-            _cachedInstallCode = code;
+            final formattedCode = code.startsWith('VDM-') ? code.replaceFirst('VDM-', 'DNKC-') : code;
+            _cachedInstallCode = formattedCode;
             _cachedIsActivated = map['isActivated'] as bool? ?? false;
             _cachedIsBlocked = map['isBlocked'] as bool? ?? false;
-            return code;
+            return formattedCode;
           }
         }
       }
@@ -69,7 +70,7 @@ class DeviceLicenseManager {
 
     final hex1 = ((hash >> 16) & 0xFFFF).toRadixString(16).padLeft(4, '0').toUpperCase();
     final hex2 = (hash & 0xFFFF).toRadixString(16).padLeft(4, '0').toUpperCase();
-    final newCode = 'VDM-$hex1-$hex2';
+    final newCode = 'DNKC-$hex1-$hex2';
 
     _cachedInstallCode = newCode;
     _cachedIsActivated = false;
@@ -108,7 +109,15 @@ class DeviceLicenseManager {
   static bool verifyActivationKey(String installCode, String enteredKey) {
     final cleanEntered = enteredKey.replaceAll(RegExp(r'[^0-9]'), '');
     final expectedKey = generateActivationKey(installCode).replaceAll(RegExp(r'[^0-9]'), '');
-    return cleanEntered == expectedKey;
+    if (cleanEntered == expectedKey) return true;
+
+    // Tương thích ngược: Nếu mã cài đặt là DNKC-, kiểm tra thêm trường hợp mã sinh từ tiền tố cũ VDM-
+    if (installCode.startsWith('DNKC-')) {
+      final oldCode = installCode.replaceFirst('DNKC-', 'VDM-');
+      final expectedOldKey = generateActivationKey(oldCode).replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanEntered == expectedOldKey) return true;
+    }
+    return false;
   }
 
   /// Kiểm tra trạng thái kích hoạt của máy
@@ -168,23 +177,29 @@ class DeviceLicenseManager {
     try {
       final code = await getInstallationCode();
       final cleanCode = code.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_');
+      final legacyCode = code.startsWith('DNKC-') ? code.replaceFirst('DNKC-', 'VDM-') : '';
+      final cleanLegacyCode = legacyCode.isNotEmpty ? legacyCode.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_') : '';
       final base = (firebaseBaseUrl != null && firebaseBaseUrl.isNotEmpty)
           ? firebaseBaseUrl
           : defaultFirebaseBaseUrl;
 
+      final codesToCheck = [cleanCode, if (cleanLegacyCode.isNotEmpty) cleanLegacyCode];
+
       // 1. Kiểm tra node danh sách khóa tập trung
-      final blockUrl = '$base/vdm_gis/danh_sach_khoa/$cleanCode.json';
-      try {
-        final res = await http.get(Uri.parse(blockUrl)).timeout(const Duration(seconds: 4));
-        if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
-          final dynamic val = jsonDecode(res.body);
-          if (val == true || val == 'true') {
-            // Bị khóa từ xa!
-            await resetActivation(isBlocked: true);
-            return true;
+      for (final c in codesToCheck) {
+        final blockUrl = '$base/vdm_gis/danh_sach_khoa/$c.json';
+        try {
+          final res = await http.get(Uri.parse(blockUrl)).timeout(const Duration(seconds: 4));
+          if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+            final dynamic val = jsonDecode(res.body);
+            if (val == true || val == 'true') {
+              // Bị khóa từ xa!
+              await resetActivation(isBlocked: true);
+              return true;
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
       // 2. Kiểm tra node danh sách kích hoạt trực tiếp
       final actUrl = '$base/vdm_gis/danh_sach_kich_hoat/$cleanCode.json';
@@ -209,7 +224,7 @@ class DeviceLicenseManager {
             for (final entry in data.values) {
               if (entry is Map) {
                 final deviceCode = (entry['maCaiDat'] ?? entry['Mã cài đặt'] ?? entry['installCode'])?.toString();
-                if (deviceCode == code) {
+                if (deviceCode == code || (legacyCode.isNotEmpty && deviceCode == legacyCode)) {
                   final isBlk = entry['isBlocked'] == true || entry['Đã khóa'] == true;
                   final isAct = entry['isActivated'] == true || entry['Đã kích hoạt'] == true;
                   final trangThai = entry['trangThai']?.toString();
@@ -238,23 +253,29 @@ class DeviceLicenseManager {
     try {
       final code = await getInstallationCode();
       final cleanCode = code.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_');
+      final legacyCode = code.startsWith('DNKC-') ? code.replaceFirst('DNKC-', 'VDM-') : '';
+      final cleanLegacyCode = legacyCode.isNotEmpty ? legacyCode.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_') : '';
       final base = (firebaseBaseUrl != null && firebaseBaseUrl.isNotEmpty)
           ? firebaseBaseUrl
           : defaultFirebaseBaseUrl;
 
+      final codesToCheck = [cleanCode, if (cleanLegacyCode.isNotEmpty) cleanLegacyCode];
+
       // 1. Kiểm tra node danh sách kích hoạt trực tiếp: /vdm_gis/danh_sach_kich_hoat/$cleanCode.json
-      final directUrl = '$base/vdm_gis/danh_sach_kich_hoat/$cleanCode.json';
-      try {
-        final res = await http.get(Uri.parse(directUrl)).timeout(const Duration(seconds: 4));
-        if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
-          final dynamic val = jsonDecode(res.body);
-          if (val == true || val == 'true') {
-            final expectedKey = generateActivationKey(code);
-            await activateDevice(expectedKey);
-            return true;
+      for (final c in codesToCheck) {
+        final directUrl = '$base/vdm_gis/danh_sach_kich_hoat/$c.json';
+        try {
+          final res = await http.get(Uri.parse(directUrl)).timeout(const Duration(seconds: 4));
+          if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+            final dynamic val = jsonDecode(res.body);
+            if (val == true || val == 'true') {
+              final expectedKey = generateActivationKey(code);
+              await activateDevice(expectedKey);
+              return true;
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
       // 2. Kiểm tra trong danh sách thiết bị cài đặt /vdm_gis/thiet_bi_cai_dat.json
       final listUrl = '$base/vdm_gis/thiet_bi_cai_dat.json';
@@ -266,7 +287,7 @@ class DeviceLicenseManager {
             for (final entry in data.values) {
               if (entry is Map) {
                 final deviceCode = (entry['maCaiDat'] ?? entry['Mã cài đặt'])?.toString();
-                if (deviceCode == code) {
+                if (deviceCode == code || (legacyCode.isNotEmpty && deviceCode == legacyCode)) {
                   final isBlk = entry['isBlocked'] == true || entry['Đã khóa'] == true;
                   if (isBlk) {
                     await resetActivation(isBlocked: true);

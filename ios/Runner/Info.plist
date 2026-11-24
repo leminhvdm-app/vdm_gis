@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>VDM GIS</string>
+	<string>DNKC GIS</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ứng dụng cần quyền định vị GPS để xác định vị trí của bạn trong lô rừng ngoài thực địa.</string>
 	<key>NSLocationAlwaysUsageDescription</key>

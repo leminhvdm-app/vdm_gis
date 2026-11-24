@@ -281,12 +281,12 @@ class AppUpdateService {
 
                       try {
                         final tempDir = await getTemporaryDirectory();
-                        final filePath = '${tempDir.path}/VDM_GIS_update_${info.versionCode}.apk';
+                        final filePath = '${tempDir.path}/DNKC_GIS_update_${info.versionCode}.apk';
                         final file = File(filePath);
 
                         final client = http.Client();
                         final request = http.Request('GET', Uri.parse(info.apkUrl));
-                        request.headers['User-Agent'] = 'Mozilla/5.0 (Linux; Android; VDM_GIS)';
+                        request.headers['User-Agent'] = 'Mozilla/5.0 (Linux; Android; DNKC_GIS)';
                         final response = await client.send(request);
 
                         if (response.statusCode != 200) {
