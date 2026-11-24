@@ -1,7 +1,7 @@
 Add-Type -AssemblyName System.Drawing
 
-$srcPath = "C:\Users\Vo Duc Minh\Desktop\Test\icon_app.png"
-$baseRes = "C:\Users\Vo Duc Minh\Desktop\Test\forest_gis\android\app\src\main\res"
+$srcPath = Join-Path $PSScriptRoot "assets\icon_app.png"
+$baseRes = Join-Path $PSScriptRoot "android\app\src\main\res"
 
 $sizes = @{
     "mipmap-mdpi" = 48
