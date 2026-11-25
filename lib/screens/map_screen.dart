@@ -667,6 +667,21 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     }
   }
 
+  int get _maxNativeZoom {
+    switch (_baseLayer) {
+      case MapBaseLayer.openTopo:
+        return 17;
+      case MapBaseLayer.openStreetMap:
+        return 19;
+      case MapBaseLayer.googleHybrid:
+      case MapBaseLayer.googleSatellite:
+      case MapBaseLayer.esriSatellite:
+      case MapBaseLayer.esriClarity:
+      default:
+        return 18;
+    }
+  }
+
   void _refreshSatelliteTiles() {
     _tileResetController.add(null);
     _showToast('Đang kết nối và tải lại các gạch bản đồ hiển thị...');
@@ -3964,6 +3979,8 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
             options: MapOptions(
               initialCenter: const LatLng(11.3420, 107.0390),
               initialZoom: 15.2,
+              minZoom: 3.0,
+              maxZoom: 22.0,
               initialRotation: 0.0,
               interactionOptions: InteractionOptions(
                 flags: _isNorthLocked
@@ -3993,14 +4010,15 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 subdomains: const ['0', '1', '2', '3'],
                 fallbackUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 userAgentPackageName: 'com.vdmgis.vn',
-                minZoom: 3.0,
-                maxZoom: 19.0,
+                minZoom: 1.0,
+                maxZoom: 22.0,
+                maxNativeZoom: _maxNativeZoom,
                 panBuffer: 1,
                 keepBuffer: 3,
                 tileProvider: PersistentOfflineTileProvider(
                   baseLayerKey: _baseLayer.name,
                 ),
-                evictErrorTileStrategy: EvictErrorTileStrategy.notVisible,
+                evictErrorTileStrategy: EvictErrorTileStrategy.none,
                 reset: _tileResetController.stream,
               ),
 
